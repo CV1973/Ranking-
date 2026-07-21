@@ -1,6 +1,6 @@
 # ============================================
 # Halbleiter & KI Aktien Ranking v7.58
-# FIX: Rating System Strong Buy, Buy, Hold, Sell
+# FIX: Rating System Strong Buy, Buy, Hold, Sell + Zyklusgewichtung
 # ============================================
 
 import streamlit as st
@@ -42,9 +42,27 @@ def get_gewichte_sektor(horizont, sektor):
         base = {"Bewertung":0.25, "Zyklus":0.25, "Wachstum":0.20, "Qualität":0.15, "Moat":0.15} if sektor=="Speicher" else {"Bewertung":0.15, "Zyklus":0.20, "Wachstum":0.20, "Qualität":0.20, "Moat":0.25}
     else:
         base = {"Bewertung":0.15, "Zyklus":0.15, "Wachstum":0.25, "Qualität":0.20, "Moat":0.25}
+    
     summe = sum(base.values())
     base = {k: v/summe for k,v in base.items()}
-    return {"Forward KGV": base["Bewertung"] * 0.4, "EV/EBITDA": base["Bewertung"] * 0.4, "PEG": base["Bewertung"] * 0.2, "Umsatz CAGR 5Y": base["Wachstum"] * 0.7, "EPS CAGR 5Y": base["Wachstum"] * 0.3, "Bruttomarge": base["Qualität"] * 0.25, "Operating Margin": base["Qualität"] * 0.25, "FCF Marge": base["Qualität"] * 0.25, "FCF Positiv": base["Qualität"] * 0.15, "Net Debt/EBITDA": base["Qualität"] * 0.10, "Moat Score": base["Moat"] * 0.5, "AI Exposure": base["Moat"] * 0.3, "Strategische Bedeutung": base["Moat"] * 0.2}
+    
+    # FIX: Zykluswirkung wurde hier ergänzt
+    return {
+        "Forward KGV": base["Bewertung"] * 0.4, 
+        "EV/EBITDA": base["Bewertung"] * 0.4, 
+        "PEG": base["Bewertung"] * 0.2, 
+        "Umsatz CAGR 5Y": base["Wachstum"] * 0.7, 
+        "EPS CAGR 5Y": base["Wachstum"] * 0.3, 
+        "Bruttomarge": base["Qualität"] * 0.25, 
+        "Operating Margin": base["Qualität"] * 0.25, 
+        "FCF Marge": base["Qualität"] * 0.25, 
+        "FCF Positiv": base["Qualität"] * 0.15, 
+        "Net Debt/EBITDA": base["Qualität"] * 0.10, 
+        "Moat Score": base["Moat"] * 0.5, 
+        "AI Exposure": base["Moat"] * 0.3, 
+        "Strategische Bedeutung": base["Moat"] * 0.2,
+        "Zykluswirkung": base["Zyklus"] * 1.0 
+    }
 
 def safe_get(d, key, default=np.nan):
     try:
@@ -62,24 +80,18 @@ def get_row_safe(df, possible_keys):
     return pd.Series(dtype=float)
 
 def get_rating(score, zyklus, fehlende_felder):
-    # FIX: Neues 4-Stufen Rating
-    daten_qualitaet = 1.0 - (len(fehlende_felder) / 15) # 15 = max KPIs
+    daten_qualitaet = 1.0 - (len(fehlende_felder) / 15)
 
-    # Bonus wenn Zyklus stark und Bewertung gut
     bonus = 0
     if zyklus > 70 and score > 65: bonus = 5
     if zyklus < 30 and score < 40: bonus = -5
 
     final_score = score + bonus
 
-    if final_score >= 80 and daten_qualitaet > 0.8:
-        return "🟢 STRONG BUY"
-    elif final_score >= 65:
-        return "🟢 BUY"
-    elif final_score >= 45:
-        return "🟡 HOLD"
-    else:
-        return "🔴 SELL"
+    if final_score >= 80 and daten_qualitaet > 0.8: return "🟢 STRONG BUY"
+    elif final_score >= 65: return "🟢 BUY"
+    elif final_score >= 45: return "🟡 HOLD"
+    else: return "🔴 SELL"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_data(symbol):
@@ -211,15 +223,15 @@ def berechne_scores(df, horizont):
             lo, hi = x.quantile(0.10), x.quantile(0.90)
             if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
             return ((x.clip(lo, hi) - lo) / (hi - lo)) * 100 if besser=="hoch" else (1 - ((x.clip(lo, hi) - lo) / (hi - lo))) * 100
+        
         score = 0.0
         for k, w in gewichte.items():
             if k in df.columns:
                 einzel = norm(df[k], "niedrig" if k in niedrig else "hoch")
                 score += einzel.loc[idx] * w
         scores.append(score)
+    
     df["Gesamtscore"] = pd.Series(scores).round(1)
-
-    # FIX: Neues Rating System
     df["Rating"] = df.apply(lambda x: get_rating(x["Gesamtscore"], x["Zykluswirkung"], x["Fehlt"].split(", ") if x["Fehlt"]!= "vollständig" else []), axis=1)
     return df
 
@@ -269,7 +281,6 @@ if st.button("Ranking starten", type="primary"):
 
     st.success(f"✅ {len(df)} von {len(st.session_state.aktien_liste)} Aktien gerankt")
 
-    # KPI Cards oben
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("STRONG BUY", len(df[df["Rating"].str.contains("STRONG BUY")]))
     with col2: st.metric("BUY", len(df[df["Rating"].str.contains("BUY") & ~df["Rating"].str.contains("STRONG")]))
