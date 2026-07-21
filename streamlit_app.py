@@ -1,7 +1,7 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.60
-# UPDATED: Hyperscaler_AI Sektor, Spin-Off Handling,
-# Korrigierte Dictionaries (MSFT, GOOGL, SNDK) & Zyklus-Fix
+# Halbleiter & KI Aktien Ranking v8.0
+# UPDATED: Sektor-interne Normierung, Speicher-Forward-Growth,
+# eSSD AI Exposure Upgrade (Samsung/SanDisk/Kioxia)
 # ============================================
 
 import streamlit as st
@@ -14,8 +14,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.60", layout="wide")
-VERSION = "v7.60"
+st.set_page_config(page_title="Halbleiter Ranking v8.0", layout="wide")
+VERSION = "v8.0"
 
 # Standard-Aktienliste
 if 'aktien_liste' not in st.session_state:
@@ -41,48 +41,50 @@ SEKTOR = {
     "MSFT": "Hyperscaler_AI", "GOOGL": "Hyperscaler_AI", "AMZN": "Hyperscaler_AI"
 }
 
+# Upgraded AI Exposure für eSSD/HBM-Spezialisten
 AI_EXPOSURE = {
     "NVDA": 100, "AVGO": 95, "MSFT": 95, "GOOGL": 95, "000660.KS": 90, "TSM": 90, 
-    "AMZN": 90, "MU": 85, "AMD": 80, "005930.KS": 80, "ASML": 80, "KLAC": 75, 
-    "LRCX": 75, "AMAT": 75, "SNDK": 75, "285A.T": 60
+    "AMZN": 90, "MU": 85, "SNDK": 85, "005930.KS": 85, "AMD": 80, "285A.T": 80, 
+    "ASML": 80, "KLAC": 75, "LRCX": 75, "AMAT": 75
 }
 
 STRAT_BEDEUTUNG = {
     "ASML": 100, "TSM": 100, "NVDA": 95, "MSFT": 95, "GOOGL": 95, "AMAT": 90, 
-    "LRCX": 90, "KLAC": 90, "AMZN": 90, "AVGO": 85, "000660.KS": 80, "MU": 80, 
-    "AMD": 75, "005930.KS": 75, "SNDK": 75, "285A.T": 60
+    "LRCX": 90, "KLAC": 90, "AMZN": 90, "005930.KS": 88, "AVGO": 85, "000660.KS": 85, 
+    "MU": 82, "SNDK": 78, "AMD": 75, "285A.T": 75
 }
 
 SEKTOR_MEDIANS = {
-    "Equipment": {"KGV": 25, "EV_EBITDA": 15, "CAGR_REV": 0.08, "CAGR_EPS": 0.12, "GM": 0.55, "OM": 0.30, "FCF": 0.15, "PEG": 1.8, "NET_DEBT": 0.8},
-    "Speicher": {"KGV": 10, "EV_EBITDA": 6, "CAGR_REV": 0.05, "CAGR_EPS": 0.08, "GM": 0.40, "OM": 0.20, "FCF": 0.10, "PEG": 1.2, "NET_DEBT": 1.5},
-    "KI_Chip": {"KGV": 35, "EV_EBITDA": 25, "CAGR_REV": 0.25, "CAGR_EPS": 0.35, "GM": 0.70, "OM": 0.45, "FCF": 0.25, "PEG": 2.5, "NET_DEBT": 0.5},
-    "Foundry": {"KGV": 18, "EV_EBITDA": 12, "CAGR_REV": 0.15, "CAGR_EPS": 0.20, "GM": 0.55, "OM": 0.40, "FCF": 0.18, "PEG": 1.5, "NET_DEBT": 1.0},
-    "Hyperscaler_AI": {"KGV": 28, "EV_EBITDA": 18, "CAGR_REV": 0.12, "CAGR_EPS": 0.15, "GM": 0.60, "OM": 0.30, "FCF": 0.20, "PEG": 1.8, "NET_DEBT": 0.2}
+    "Equipment": {"KGV": 25, "KBV": 6.0, "EV_EBITDA": 15, "CAGR_REV": 0.08, "CAGR_EPS": 0.12, "GM": 0.55, "OM": 0.30, "FCF": 0.15, "PEG": 1.8, "NET_DEBT": 0.8},
+    "Speicher": {"KGV": 12, "KBV": 1.3, "EV_EBITDA": 7, "CAGR_REV": 0.15, "CAGR_EPS": 0.25, "GM": 0.38, "OM": 0.20, "FCF": 0.12, "PEG": 1.2, "NET_DEBT": 0.5},
+    "KI_Chip": {"KGV": 35, "KBV": 12.0, "EV_EBITDA": 25, "CAGR_REV": 0.25, "CAGR_EPS": 0.35, "GM": 0.70, "OM": 0.45, "FCF": 0.25, "PEG": 2.5, "NET_DEBT": 0.5},
+    "Foundry": {"KGV": 18, "KBV": 4.5, "EV_EBITDA": 12, "CAGR_REV": 0.15, "CAGR_EPS": 0.20, "GM": 0.55, "OM": 0.40, "FCF": 0.18, "PEG": 1.5, "NET_DEBT": 1.0},
+    "Hyperscaler_AI": {"KGV": 28, "KBV": 7.0, "EV_EBITDA": 18, "CAGR_REV": 0.12, "CAGR_EPS": 0.15, "GM": 0.60, "OM": 0.30, "FCF": 0.20, "PEG": 1.8, "NET_DEBT": 0.2}
 }
 
 def get_gewichte_sektor(horizont, sektor):
     if horizont == 6:
-        base = {"Bewertung":0.25, "Zyklus":0.30, "Wachstum":0.15, "Qualität":0.15, "Moat":0.15} if sektor=="Speicher" else {"Bewertung":0.20, "Zyklus":0.25, "Wachstum":0.20, "Qualität":0.15, "Moat":0.20}
+        base = {"Bewertung":0.25, "Zyklus":0.20, "Wachstum":0.20, "Qualität":0.20, "Moat":0.15}
     elif horizont == 12:
-        base = {"Bewertung":0.25, "Zyklus":0.25, "Wachstum":0.20, "Qualität":0.15, "Moat":0.15} if sektor=="Speicher" else {"Bewertung":0.15, "Zyklus":0.20, "Wachstum":0.20, "Qualität":0.20, "Moat":0.25}
+        base = {"Bewertung":0.20, "Zyklus":0.15, "Wachstum":0.20, "Qualität":0.25, "Moat":0.20}
     else:
-        base = {"Bewertung":0.15, "Zyklus":0.15, "Wachstum":0.25, "Qualität":0.20, "Moat":0.25}
+        base = {"Bewertung":0.15, "Zyklus":0.10, "Wachstum":0.25, "Qualität":0.25, "Moat":0.25}
     
     summe = sum(base.values())
     base = {k: v/summe for k,v in base.items()}
     
     return {
-        "Forward KGV": base["Bewertung"] * 0.4, 
-        "EV/EBITDA": base["Bewertung"] * 0.4, 
-        "PEG": base["Bewertung"] * 0.2, 
-        "Umsatz CAGR 5Y": base["Wachstum"] * 0.7, 
-        "EPS CAGR 5Y": base["Wachstum"] * 0.3, 
+        "Forward KGV": base["Bewertung"] * 0.35,
+        "KBV": base["Bewertung"] * 0.35,
+        "EV/EBITDA": base["Bewertung"] * 0.15, 
+        "PEG": base["Bewertung"] * 0.15, 
+        "Umsatz CAGR 5Y": base["Wachstum"] * 0.6, 
+        "EPS CAGR 5Y": base["Wachstum"] * 0.4, 
         "Bruttomarge": base["Qualität"] * 0.25, 
         "Operating Margin": base["Qualität"] * 0.25, 
         "FCF Marge": base["Qualität"] * 0.25, 
-        "FCF Positiv": base["Qualität"] * 0.15, 
-        "Net Debt/EBITDA": base["Qualität"] * 0.10, 
+        "FCF Positiv": base["Qualität"] * 0.10, 
+        "Net Debt/EBITDA": base["Qualität"] * 0.15, 
         "Moat Score": base["Moat"] * 0.5, 
         "AI Exposure": base["Moat"] * 0.3, 
         "Strategische Bedeutung": base["Moat"] * 0.2,
@@ -104,18 +106,12 @@ def get_row_safe(df, possible_keys):
             if len(series) > 0: return series
     return pd.Series(dtype=float)
 
-def get_rating(score, zyklus, fehlende_felder):
+def get_rating(score, fehlende_felder):
     daten_qualitaet = 1.0 - (len(fehlende_felder) / 15)
 
-    bonus = 0
-    if zyklus > 70 and score > 65: bonus = 5
-    if zyklus < 30 and score < 40: bonus = -5
-
-    final_score = score + bonus
-
-    if final_score >= 80 and daten_qualitaet > 0.8: return "🟢 STRONG BUY"
-    elif final_score >= 65: return "🟢 BUY"
-    elif final_score >= 45: return "🟡 HOLD"
+    if score >= 78 and daten_qualitaet > 0.8: return "🟢 STRONG BUY"
+    elif score >= 65: return "🟢 BUY"
+    elif score >= 48: return "🟡 HOLD"
     else: return "🔴 SELL"
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -131,9 +127,6 @@ def get_yahoo_data(symbol):
         history = ticker.history(period="1d")
 
         sektor = SEKTOR.get(symbol, "Foundry")
-        if symbol not in SEKTOR:
-            warnung = "Unbekannter Ticker (Fallback Foundry)"
-            fehlende_felder.append("Sektor")
 
         kurs = safe_get(info, "currentPrice")
         if pd.isna(kurs) and not history.empty: kurs = history["Close"].iloc[-1]
@@ -148,6 +141,11 @@ def get_yahoo_data(symbol):
             forward_kgv = SEKTOR_MEDIANS[sektor]["KGV"]
             fehlende_felder.append("KGV")
 
+        kbv = safe_get(info, "priceToBook")
+        if pd.isna(kbv):
+            kbv = SEKTOR_MEDIANS[sektor]["KBV"]
+            fehlende_felder.append("KBV")
+
         ev_ebitda = safe_get(info, "enterpriseToEbitda")
         if pd.isna(ev_ebitda):
             ev_ebitda = SEKTOR_MEDIANS[sektor]["EV_EBITDA"]
@@ -158,38 +156,42 @@ def get_yahoo_data(symbol):
             peg = SEKTOR_MEDIANS[sektor]["PEG"]
             fehlende_felder.append("PEG")
 
-        # --- Robuste CAGR & Spin-Off Logik ---
-        cagr_rev = np.nan
-        cagr_eps = np.nan
-        rev_series = get_row_safe(financials, ["Total Revenue", "Revenue"])
-        eps_series = get_row_safe(financials, ["Diluted EPS", "Diluted EPS (excl. Extra Items)", "Basic EPS"])
-
-        if len(rev_series) >= 3:
-            cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
-        elif len(rev_series) == 2:
-            cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1]) - 1
-
-        if len(eps_series) >= 3:
-            cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
-        elif len(eps_series) == 2:
-            cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1]) - 1
-
-        # Fallback für Spin-Offs (z. B. SNDK) mit fehlenden historischen Geschäftsberichten
-        if pd.isna(cagr_rev):
+        # --- NEU v8.0: Speicheraktien nutzen präferiert Forward-Wachstum ---
+        cagr_rev, cagr_eps = np.nan, np.nan
+        
+        if sektor == "Speicher":
+            # Bei Speicher-Aktien direkt Erholungs-Schätzungen (Forward) wählen
             cagr_rev = safe_get(info, "revenueGrowth")
-            if pd.isna(cagr_rev):
-                cagr_rev = SEKTOR_MEDIANS[sektor]["CAGR_REV"]
-                fehlende_felder.append("CAGR_REV")
-            else:
-                warnung = "Spin-off/Kürzliche Notierung"
-
-        if pd.isna(cagr_eps):
             cagr_eps = safe_get(info, "earningsGrowth")
+            if pd.isna(cagr_rev): cagr_rev = SEKTOR_MEDIANS[sektor]["CAGR_REV"]
+            if pd.isna(cagr_eps): cagr_eps = SEKTOR_MEDIANS[sektor]["CAGR_EPS"]
+        else:
+            rev_series = get_row_safe(financials, ["Total Revenue", "Revenue"])
+            eps_series = get_row_safe(financials, ["Diluted EPS", "Diluted EPS (excl. Extra Items)", "Basic EPS"])
+
+            if len(rev_series) >= 3:
+                cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
+            elif len(rev_series) == 2:
+                cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1]) - 1
+
+            if len(eps_series) >= 3:
+                cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
+            elif len(eps_series) == 2:
+                cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1]) - 1
+
+            if pd.isna(cagr_rev):
+                cagr_rev = safe_get(info, "revenueGrowth")
+                if pd.isna(cagr_rev):
+                    cagr_rev = SEKTOR_MEDIANS[sektor]["CAGR_REV"]
+                    fehlende_felder.append("CAGR_REV")
+                else: warnung = "Spin-off/Geringe Historie"
+
             if pd.isna(cagr_eps):
-                cagr_eps = SEKTOR_MEDIANS[sektor]["CAGR_EPS"]
-                fehlende_felder.append("CAGR_EPS")
-            else:
-                warnung = "Spin-off/Kürzliche Notierung"
+                cagr_eps = safe_get(info, "earningsGrowth")
+                if pd.isna(cagr_eps):
+                    cagr_eps = SEKTOR_MEDIANS[sektor]["CAGR_EPS"]
+                    fehlende_felder.append("CAGR_EPS")
+                else: warnung = "Spin-off/Geringe Historie"
 
         gm = safe_get(info, "grossMargins")
         om = safe_get(info, "operatingMargins")
@@ -203,7 +205,7 @@ def get_yahoo_data(symbol):
         fcf, revenue = np.nan, np.nan
         fcf_series = get_row_safe(cashflow, ["Free Cash Flow", "FreeCashFlow"])
         if len(fcf_series) > 0: fcf = fcf_series.iloc[0]
-        if len(rev_series) > 0: revenue = rev_series.iloc[0]
+        if len(rev_series) > 0 if 'rev_series' in locals() else False: revenue = rev_series.iloc[0]
 
         fcf_marge = (fcf / revenue) if (pd.notna(fcf) and pd.notna(revenue) and revenue != 0) else np.nan
         if pd.isna(fcf_marge):
@@ -226,26 +228,17 @@ def get_yahoo_data(symbol):
         margin_score = gm_pct * 0.5 + om_pct * 0.5
         moat = np.clip(market_score*0.4 + tech_score*0.3 + margin_score*0.3, 0, 100) * 0.7 + STRAT_BEDEUTUNG.get(symbol, 50) * 0.3
 
-        eps_score = np.clip((cagr_eps * 100 + 20) * 2, 0, 100)
-        
-        # Sektorspezifische Bewertungs-Scales
-        if sektor == "Equipment": bewertung_score = np.clip((40 - forward_kgv) * 3, 0, 100)
-        elif sektor == "Speicher": bewertung_score = np.clip((15 - forward_kgv) * 6, 0, 100)
-        elif sektor == "KI_Chip": bewertung_score = np.clip((50 - forward_kgv) * 2.5, 0, 100)
-        elif sektor == "Foundry": bewertung_score = np.clip((25 - forward_kgv) * 5, 0, 100)
-        elif sektor == "Hyperscaler_AI": bewertung_score = np.clip((38 - forward_kgv) * 3, 0, 100)
-        else: bewertung_score = 50
-
-        zyklus = eps_score * 0.5 + 50 * 0.2 + bewertung_score * 0.3
+        rev_growth_short = safe_get(info, "revenueGrowth", 0)
+        operating_leverage = np.clip((om / (gm + 1e-5)) * 100, 10, 90)
+        zyklus = operating_leverage * 0.6 + np.clip((rev_growth_short * 100 + 10) * 2, 10, 90) * 0.4
 
         data = {
             "Ticker": symbol, "Sektor": sektor, "Warnung": warnung,
             "Fehlt": ", ".join(list(set(fehlende_felder))) if fehlende_felder else "vollständig",
-            "Fehlende_Anzahl": len(fehlende_felder),
             "Name": safe_get(info, "shortName", namen.get(symbol, symbol)),
             "Marktkapitalisierung Mrd": round(marketcap / 1e9, 1),
             "Kurs": round(kurs, 2),
-            "Forward KGV": forward_kgv, "EV/EBITDA": ev_ebitda, "PEG": peg,
+            "Forward KGV": forward_kgv, "KBV": kbv, "EV/EBITDA": ev_ebitda, "PEG": peg,
             "Umsatz CAGR 5Y": cagr_rev, "EPS CAGR 5Y": cagr_eps,
             "Bruttomarge": gm, "Operating Margin": om, "FCF Marge": fcf_marge,
             "FCF Positiv": 100 if pd.notna(fcf) and fcf > 0 else 0,
@@ -258,33 +251,65 @@ def get_yahoo_data(symbol):
     except Exception as e:
         return None, f"{symbol}: {str(e)[:60]}"
 
+# --- NEU v8.0: Sektor-interne Normierung ---
+def norm_sektor_aware(df, col, besser="hoch"):
+    """ Vergleicht jede Kennzahl relativ zum Sektor-Median (Benchmark-Ratio) """
+    key_map = {
+        "Forward KGV": "KGV", "KBV": "KBV", "EV/EBITDA": "EV_EBITDA", "PEG": "PEG",
+        "Umsatz CAGR 5Y": "CAGR_REV", "EPS CAGR 5Y": "CAGR_EPS",
+        "Bruttomarge": "GM", "Operating Margin": "OM", "FCF Marge": "FCF",
+        "Net Debt/EBITDA": "NET_DEBT"
+    }
+    
+    # Absolute/Skalierte Scores direkt übernehmen
+    if col in ["Moat Score", "AI Exposure", "Strategische Bedeutung", "Zykluswirkung", "FCF Positiv"]:
+        return pd.to_numeric(df[col], errors='coerce').fillna(50)
+        
+    rel_ratios = []
+    for idx, row in df.iterrows():
+        val = pd.to_numeric(row[col], errors='coerce')
+        sektor = row["Sektor"]
+        med_key = key_map.get(col, None)
+        
+        if med_key and sektor in SEKTOR_MEDIANS and med_key in SEKTOR_MEDIANS[sektor]:
+            median_val = SEKTOR_MEDIANS[sektor][med_key]
+            if pd.isna(val) or val == 0 or median_val == 0:
+                rel_val = 1.0
+            else:
+                rel_val = (val / median_val) if besser == "hoch" else (median_val / val if val > 0 else 0.5)
+        else:
+            rel_val = val if pd.notna(val) else 1.0
+        rel_ratios.append(rel_val)
+        
+    rel_s = pd.Series(rel_ratios, index=df.index)
+    lo, hi = rel_s.quantile(0.05), rel_s.quantile(0.95)
+    if hi == lo: return pd.Series(50.0, index=df.index)
+    
+    # Skalierung auf Punktebereich 20 bis 90
+    clipped = rel_s.clip(lo, hi)
+    return ((clipped - lo) / (hi - lo)) * 70 + 20
+
 def berechne_scores(df, horizont):
     scores = []
+    niedrig = ["Forward KGV", "KBV", "EV/EBITDA", "PEG", "Net Debt/EBITDA"]
+    
+    norm_df = pd.DataFrame(index=df.index)
+    for col in df.columns:
+        if col not in ["Ticker", "Name", "Sektor", "Datum", "Rating", "Fehlt", "Warnung"]:
+            norm_df[col] = norm_sektor_aware(df, col, besser="niedrig" if col in niedrig else "hoch")
+
     for idx, row in df.iterrows():
         gewichte = get_gewichte_sektor(horizont, row["Sektor"])
-        niedrig = ["Forward KGV", "EV/EBITDA", "PEG", "Net Debt/EBITDA"]
-        
-        def norm(x, besser="hoch"):
-            x = pd.to_numeric(x, errors='coerce').fillna(50)
-            if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
-            lo, hi = x.quantile(0.10), x.quantile(0.90)
-            if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
-            return ((x.clip(lo, hi) - lo) / (hi - lo)) * 100 if besser=="hoch" else (1 - ((x.clip(lo, hi) - lo) / (hi - lo))) * 100
-        
-        score = 0.0
-        for k, w in gewichte.items():
-            if k in df.columns:
-                einzel = norm(df[k], "niedrig" if k in niedrig else "hoch")
-                score += einzel.loc[idx] * w
+        score = sum(norm_df.loc[idx, k] * w for k, w in gewichte.items() if k in norm_df.columns)
         scores.append(score)
     
-    df["Gesamtscore"] = pd.Series(scores).round(1)
-    df["Rating"] = df.apply(lambda x: get_rating(x["Gesamtscore"], x["Zykluswirkung"], x["Fehlt"].split(", ") if x["Fehlt"] != "vollständig" else []), axis=1)
+    df["Gesamtscore"] = pd.Series(scores, index=df.index).round(1)
+    df["Rating"] = df.apply(lambda x: get_rating(x["Gesamtscore"], x["Fehlt"].split(", ") if x["Fehlt"] != "vollständig" else []), axis=1)
     return df
 
 # ========== UI ==========
 st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
-st.caption("Rating: STRONG BUY ≥80 | BUY ≥65 | HOLD ≥45 | SELL <45")
+st.caption("Rating: STRONG BUY ≥78 | BUY ≥65 | HOLD ≥48 | SELL <48")
 
 col1, col2 = st.columns([1,2])
 with col1: 
@@ -351,7 +376,7 @@ if st.button("Ranking starten", type="primary"):
         df_display["Name"] = df_display.apply(lambda x: x["Name"] + " 🟠" if x["Warnung"] else x["Name"], axis=1)
         
         st.dataframe(
-            df_display[["Datum", "Ticker", "Name", "Sektor", "Gesamtscore", "Rating", "Zykluswirkung", "Forward KGV", "Warnung", "Fehlt"]], 
+            df_display[["Datum", "Ticker", "Name", "Sektor", "Gesamtscore", "Rating", "Zykluswirkung", "Forward KGV", "KBV", "Warnung", "Fehlt"]], 
             use_container_width=True, 
             hide_index=True
         )
