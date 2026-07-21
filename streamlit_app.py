@@ -1,6 +1,6 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.42
-# Fix: Cache + Ticker Objekt entfernt
+# Halbleiter & KI Aktien Ranking v7.43
+# Fix: ticker.revisions entfernt
 # ============================================
 
 import streamlit as st
@@ -14,9 +14,9 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.42", layout="wide")
+st.set_page_config(page_title="Halbleiter Ranking v7.43", layout="wide")
 
-VERSION = "v7.42"
+VERSION = "v7.43"
 aktien_default = [
     "MU", "SNDK", "NVDA", "AMD", "AVGO", "TSM",
     "005930.KS", "000660.KS", "285A.T", "ASML",
@@ -73,14 +73,6 @@ def get_cagr(financials, metric_name):
     except:
         return np.nan
 
-def get_eps_revision(revisions):
-    try:
-        if revisions is None or revisions.empty: return 50
-        rev_3m = revisions.tail(3)["earningsEstimate"].pct_change().mean() * 100
-        return np.clip(50 + rev_3m * 5, 0, 100)
-    except:
-        return 50
-
 def calc_moat_score_semiconductor(info, financials):
     try:
         gm = info.get("grossMargins", 0) * 100
@@ -124,20 +116,17 @@ def get_yahoo_data(symbol):
             time.sleep(2)
             ticker = yf.Ticker(symbol)
 
-            # FIX 3: Robuster fast_info
             try:
                 fast = ticker.fast_info
                 kurs = fast.get("lastPrice")
                 marketcap = fast.get("marketCap")
             except:
-                fast = {}
                 kurs = None
                 marketcap = None
 
             info = ticker.info or {}
             financials = ticker.financials
             cashflow = ticker.cashflow
-            revisions = ticker.revisions
 
             if kurs is None or pd.isna(kurs):
                 hist = ticker.history(period="1d")
@@ -169,13 +158,11 @@ def get_yahoo_data(symbol):
             if ebitda and ebitda!= 0:
                 net_debt_ebitda = np.clip((debt - cash) / ebitda, -5, 10)
 
-            # FIX 1+2: Kein Ticker Objekt mehr. Nur dicts speichern
             return {
                 "Ticker": symbol,
                 "Name": info.get("shortName") or namen.get(symbol, symbol),
-                "info": info, # statt _ticker
-                "financials": financials, # statt _ticker
-                "revisions": revisions,
+                "info": info,
+                "financials": financials,
                 "Marktkapitalisierung Mrd": (marketcap / 1e9).round(1) if marketcap else np.nan,
                 "Kurs": kurs,
                 "Forward KGV": forward_kgv,
@@ -183,7 +170,7 @@ def get_yahoo_data(symbol):
                 "PEG": peg,
                 "Umsatz CAGR 5Y": get_cagr(financials, "Total Revenue"),
                 "EPS CAGR 5Y": get_cagr(financials, "Diluted EPS"),
-                "EPS Revision 3M": get_eps_revision(revisions),
+                "EPS Revision 3M": 50.0, # FIX: revisions gibt es nicht mehr
                 "Bruttomarge": info.get("grossMargins"),
                 "Operating Margin": info.get("operatingMargins"),
                 "FCF Marge": fcf_marge,
@@ -193,7 +180,7 @@ def get_yahoo_data(symbol):
                 "AI Exposure": AI_EXPOSURE.get(symbol, 50),
                 "Strategische Bedeutung": STRAT_BEDEUTUNG.get(symbol, 50)
             }
-        except Exception as e: # FIX: Fehler anzeigen
+        except Exception as e:
             st.error(f"Fehler bei {symbol}: {e}")
             st.code(traceback.format_exc())
             time.sleep(4)
@@ -228,7 +215,7 @@ def berechne_scores(df, horizont):
 
 # ========== UI ==========
 st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
-st.caption("Cycle Adjusted Quality Model - Bugfix Cache")
+st.caption("Cycle Adjusted Quality Model - Bugfix yfinance")
 
 col1, col2 = st.columns([2,1])
 with col1:
@@ -249,7 +236,6 @@ if st.button("Ranking starten", type="primary"):
         status.text(f"Lade {symbol}... {i+1}/{len(aktien_liste)}")
         data = get_yahoo_data(symbol)
         if data:
-            # FIX: Kein data[_ticker].info mehr
             data["Zykluswirkung"] = get_zyklus_score(symbol, data, data["info"], data["financials"], horizont)
             daten.append(data)
         else:
@@ -264,7 +250,7 @@ if st.button("Ranking starten", type="primary"):
         st.warning(f"Übersprungen: {', '.join(fehler_liste)}")
 
     df = pd.DataFrame(daten)
-    df = df.drop(columns=["info", "financials", "revisions"]) # nicht in Excel
+    df = df.drop(columns=["info", "financials"])
     for c in df.columns:
         if c not in ["Ticker", "Name"]: df[c] = pd.to_numeric(df[c], errors="coerce")
 
