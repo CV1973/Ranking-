@@ -1,6 +1,7 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.43
-# Fix: ticker.revisions entfernt
+# Halbleiter & KI Aktien Ranking v7.44
+# Getestet mit yfinance 0.2.40
+# Cycle Adjusted Quality Model
 # ============================================
 
 import streamlit as st
@@ -14,9 +15,9 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.43", layout="wide")
+st.set_page_config(page_title="Halbleiter Ranking v7.44", layout="wide")
 
-VERSION = "v7.43"
+VERSION = "v7.44"
 aktien_default = [
     "MU", "SNDK", "NVDA", "AMD", "AVGO", "TSM",
     "005930.KS", "000660.KS", "285A.T", "ASML",
@@ -61,8 +62,13 @@ def get_gewichte_interpoliert(horizont):
         "Moat Score": gew["Moat"] * 0.5, "AI Exposure": gew["Moat"] * 0.3, "Strategische Bedeutung": gew["Moat"] * 0.2
     }
 
+def safe_get(d, key, default=np.nan):
+    try: return d.get(key, default)
+    except: return default
+
 def get_cagr(financials, metric_name):
     try:
+        if financials is None or financials.empty: return np.nan
         series = financials.loc[metric_name].dropna()
         if len(series) < 3: return np.nan
         start = series.iloc[-1]
@@ -75,10 +81,10 @@ def get_cagr(financials, metric_name):
 
 def calc_moat_score_semiconductor(info, financials):
     try:
-        gm = info.get("grossMargins", 0) * 100
-        om = info.get("operatingMargins", 0) * 100
+        gm = safe_get(info, "grossMargins", 0) * 100
+        om = safe_get(info, "operatingMargins", 0) * 100
         cagr = get_cagr(financials, "Total Revenue") * 100
-        marketcap = info.get("marketCap", 1e9)
+        marketcap = safe_get(info, "marketCap", 1e9)
         market_score = np.clip(np.log10(marketcap) * 10, 0, 100)
         tech_score = gm * 0.6 + om * 0.4
         margin_score = gm * 0.5 + om * 0.5
@@ -88,91 +94,90 @@ def calc_moat_score_semiconductor(info, financials):
     except:
         return 50
 
-def get_zyklus_score(symbol, data, info, financials, horizont):
-    eps_growth = data.get("EPS CAGR 5Y", 0)
-    eps_score = np.clip((eps_growth * 100 + 20) * 2, 0, 100)
+def get_zyklus_score(symbol, info, financials, horizont):
+    eps_growth = get_cagr(financials, "Diluted EPS")
+    eps_score = np.clip((eps_growth * 100 + 20) * 2, 0, 100) if pd.notna(eps_growth) else 50
 
-    gm_aktuell = info.get("grossMargins", 0)
+    gm_aktuell = safe_get(info, "grossMargins", 0)
     margin_trend_score = 50
     try:
-        gm_series = (financials.loc["Gross Profit"] / financials.loc["Total Revenue"]).dropna()
-        if len(gm_series) >= 3:
-            avg_3y = gm_series.iloc[:3].mean()
-            diff = (gm_aktuell - avg_3y) * 100
-            margin_trend_score = np.clip(50 + diff * 10, 0, 100)
+        if financials is not None:
+            gm_series = (financials.loc["Gross Profit"] / financials.loc["Total Revenue"]).dropna()
+            if len(gm_series) >= 3:
+                avg_3y = gm_series.iloc[:3].mean()
+                diff = (gm_aktuell - avg_3y) * 100
+                margin_trend_score = np.clip(50 + diff * 10, 0, 100)
     except: pass
 
     nachfrage = 80 if symbol in KI_INFRA else 70 if symbol in SPEICHER_AKTIEN else 50
-    fwd_pe = info.get("forwardPE", 20)
-    bewertung_score = np.clip((30 - fwd_pe) * 5, 0, 100)
+    fwd_pe = safe_get(info, "forwardPE", 20)
+    bewertung_score = np.clip((30 - fwd_pe) * 5, 0, 100) if pd.notna(fwd_pe) else 50
     zyklus = eps_score*0.4 + margin_trend_score*0.3 + nachfrage*0.2 + bewertung_score*0.1
     if horizont > 60: zyklus = zyklus * 0.7 + 50 * 0.3
-    return zyklus
+    return np.clip(zyklus, 0, 100)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_data(symbol):
     for attempt in range(3):
         try:
-            time.sleep(2)
+            time.sleep(1.5)
             ticker = yf.Ticker(symbol)
 
-            try:
-                fast = ticker.fast_info
-                kurs = fast.get("lastPrice")
-                marketcap = fast.get("marketCap")
-            except:
-                kurs = None
-                marketcap = None
-
+            # FIX 1: info und financials zuerst
             info = ticker.info or {}
             financials = ticker.financials
             cashflow = ticker.cashflow
+            history = ticker.history(period="1d")
 
-            if kurs is None or pd.isna(kurs):
-                hist = ticker.history(period="1d")
-                kurs = hist["Close"].iloc[-1] if not hist.empty else None
-            if kurs is None or pd.isna(kurs):
+            # FIX 2: Kurs und Marketcap robust
+            kurs = safe_get(info, "currentPrice")
+            if pd.isna(kurs) and not history.empty:
+                kurs = history["Close"].iloc[-1]
+            marketcap = safe_get(info, "marketCap")
+
+            if pd.isna(kurs):
                 time.sleep(3)
                 continue
 
-            forward_kgv = info.get("forwardPE")
-            peg = info.get("pegRatio")
-            growth = info.get("earningsGrowth")
-            if peg is None and forward_kgv and growth and growth > 0:
+            forward_kgv = safe_get(info, "forwardPE")
+            peg = safe_get(info, "pegRatio")
+            growth = safe_get(info, "earningsGrowth")
+            if pd.isna(peg) and pd.notna(forward_kgv) and pd.notna(growth) and growth > 0:
                 peg = forward_kgv / (growth * 100)
 
-            fcf, revenue = None, None
+            fcf, revenue = np.nan, np.nan
             try:
-                fcf = cashflow.loc["Free Cash Flow"].iloc[0]
-                revenue = financials.loc["Total Revenue"].iloc[0]
-            except:
-                fcf = info.get("freeCashflow")
-                revenue = info.get("totalRevenue")
-            fcf_marge = (fcf / revenue) if (fcf and revenue and revenue!= 0) else np.nan
+                if cashflow is not None and not cashflow.empty:
+                    fcf = cashflow.loc["Free Cash Flow"].iloc[0]
+                if financials is not None and not financials.empty:
+                    revenue = financials.loc["Total Revenue"].iloc[0]
+            except: pass
+
+            fcf_marge = (fcf / revenue) if (pd.notna(fcf) and pd.notna(revenue) and revenue!= 0) else np.nan
             fcf_positiv = 100 if pd.notna(fcf) and fcf > 0 else 0
 
-            debt = info.get("totalDebt") or 0
-            cash = info.get("totalCash") or 0
-            ebitda = info.get("ebitda")
+            debt = safe_get(info, "totalDebt", 0)
+            cash = safe_get(info, "totalCash", 0)
+            ebitda = safe_get(info, "ebitda")
             net_debt_ebitda = np.nan
-            if ebitda and ebitda!= 0:
+            if pd.notna(ebitda) and ebitda!= 0:
                 net_debt_ebitda = np.clip((debt - cash) / ebitda, -5, 10)
 
             return {
                 "Ticker": symbol,
-                "Name": info.get("shortName") or namen.get(symbol, symbol),
+                "Name": safe_get(info, "shortName", namen.get(symbol, symbol)),
                 "info": info,
                 "financials": financials,
-                "Marktkapitalisierung Mrd": (marketcap / 1e9).round(1) if marketcap else np.nan,
-                "Kurs": kurs,
+                "Marktkapitalisierung Mrd": round(marketcap / 1e9, 1) if pd.notna(marketcap) else np.nan,
+                "Kurs": round(kurs, 2) if pd.notna(kurs) else np.nan,
                 "Forward KGV": forward_kgv,
-                "EV/EBITDA": info.get("enterpriseToEbitda"),
+                "EV/EBITDA": safe_get(info, "enterpriseToEbitda"),
                 "PEG": peg,
                 "Umsatz CAGR 5Y": get_cagr(financials, "Total Revenue"),
                 "EPS CAGR 5Y": get_cagr(financials, "Diluted EPS"),
-                "EPS Revision 3M": 50.0, # FIX: revisions gibt es nicht mehr
-                "Bruttomarge": info.get("grossMargins"),
-                "Operating Margin": info.get("operatingMargins"),
+                "EPS Revision 3M": 50.0, # revisions gibt es nicht mehr
+                "Bruttomarge": safe_get(info, "grossMargins"),
+                "Operating Margin": safe_get(info, "operatingMargins"),
                 "FCF Marge": fcf_marge,
                 "FCF Positiv": fcf_positiv,
                 "Net Debt/EBITDA": net_debt_ebitda,
@@ -183,7 +188,7 @@ def get_yahoo_data(symbol):
         except Exception as e:
             st.error(f"Fehler bei {symbol}: {e}")
             st.code(traceback.format_exc())
-            time.sleep(4)
+            time.sleep(3)
     return None
 
 def berechne_scores(df, horizont):
@@ -191,12 +196,14 @@ def berechne_scores(df, horizont):
     niedrig = ["Forward KGV", "EV/EBITDA", "PEG", "Net Debt/EBITDA"]
 
     def niedrig_besser(x):
+        x = pd.to_numeric(x, errors='coerce')
         if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
         lo, hi = x.quantile(0.05), x.quantile(0.95)
         if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
         return (1 - ((x.clip(lo, hi) - lo) / (hi - lo))) * 100
 
     def hoch_besser(x):
+        x = pd.to_numeric(x, errors='coerce')
         if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
         lo, hi = x.quantile(0.05), x.quantile(0.95)
         if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
@@ -215,7 +222,7 @@ def berechne_scores(df, horizont):
 
 # ========== UI ==========
 st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
-st.caption("Cycle Adjusted Quality Model - Bugfix yfinance")
+st.caption("Cycle Adjusted Quality Model - Getestet mit yfinance 0.2.40")
 
 col1, col2 = st.columns([2,1])
 with col1:
@@ -236,7 +243,7 @@ if st.button("Ranking starten", type="primary"):
         status.text(f"Lade {symbol}... {i+1}/{len(aktien_liste)}")
         data = get_yahoo_data(symbol)
         if data:
-            data["Zykluswirkung"] = get_zyklus_score(symbol, data, data["info"], data["financials"], horizont)
+            data["Zykluswirkung"] = get_zyklus_score(symbol, data["info"], data["financials"], horizont)
             daten.append(data)
         else:
             fehler_liste.append(symbol)
@@ -251,8 +258,11 @@ if st.button("Ranking starten", type="primary"):
 
     df = pd.DataFrame(daten)
     df = df.drop(columns=["info", "financials"])
+
+    # Alle numerischen Spalten konvertieren
     for c in df.columns:
-        if c not in ["Ticker", "Name"]: df[c] = pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name", "Datum", "Bewertung"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
     for col in ["Forward KGV", "EV/EBITDA", "PEG"]:
         if col in df.columns: df[col] = df[col].apply(lambda x: np.nan if (pd.notna(x) and x <= 0) else x)
@@ -261,12 +271,9 @@ if st.button("Ranking starten", type="primary"):
     df = df.sort_values("Gesamtscore", ascending=False)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
 
-    df["Kurs"] = df["Kurs"].round(2)
-    df["Forward KGV"] = df["Forward KGV"].round(1)
-    df["EV/EBITDA"] = df["EV/EBITDA"].round(1)
-    df["PEG"] = df["PEG"].round(2)
+    # Formatierung
     for c in ["Umsatz CAGR 5Y", "EPS CAGR 5Y", "Bruttomarge", "Operating Margin", "FCF Marge"]:
-        df[c] = (df[c] * 100).round(2)
+        if c in df.columns: df[c] = (df[c] * 100).round(2)
 
     st.success(f"Fertig! {len(df)} von {len(aktien_liste)} Aktien gerankt")
 
