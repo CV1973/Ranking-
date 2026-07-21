@@ -1,414 +1,308 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking - Streamlit-Version v7.33
-# Läuft als eigenständige Web-App (PC + Smartphone), kein Colab nötig.
-# Jeder Export wird dauerhaft mit Datum + Uhrzeit in ein Google Sheet geschrieben.
-# Zugriff ist per Passwort geschützt (siehe Secrets).
-#
-# Änderungen ggü. v7.32: siehe Changelog in Halbleiter_Ranking_v7.33.py
-# (fast_info, PEG-Fallback, FCF/EV-EBITDA-Bereinigung, winsorized Min-Max-
-# Scoring, verschärfte Datenqualitäts-Strafe, formatierter Excel-Download)
-#
-# Lokal starten:   streamlit run streamlit_app.py
-# Secrets (Google Service Account, Sheet-ID, Passwort) werden NICHT im Code
-# hinterlegt, sondern in Streamlit Cloud unter "Manage app" -> Settings -> Secrets.
+# Halbleiter & KI Aktien Ranking v7.40
+# Streamlit App - Cycle Adjusted Quality Model
 # ============================================
 
-import io
-import time
-import contextlib
-from datetime import datetime
-
-import numpy as np
-import pandas as pd
 import streamlit as st
 import yfinance as yf
-import gspread
-from google.oauth2.service_account import Credentials
+import pandas as pd
+import numpy as np
+import time
+from datetime import datetime
+import io
+import warnings
+warnings.filterwarnings("ignore")
 
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Side, PatternFill
-from openpyxl.utils import get_column_letter
+st.set_page_config(page_title="Halbleiter Ranking v7.40", layout="wide")
 
-st.set_page_config(page_title="Halbleiter Ranking", page_icon="📊", layout="wide")
-
-VERSION = "v7.33 (Streamlit + Google Sheets)"
-
-DEFAULT_AKTIEN = [
+# ========== CONFIG ==========
+VERSION = "v7.40"
+aktien_default = [
     "MU", "SNDK", "NVDA", "AMD", "AVGO", "TSM",
     "005930.KS", "000660.KS", "285A.T", "ASML",
     "AMAT", "LRCX", "KLAC"
 ]
 
-NAMEN = {
+namen = {
     "MU": "Micron", "SNDK": "SanDisk", "NVDA": "Nvidia", "AMD": "AMD",
     "AVGO": "Broadcom", "TSM": "TSMC", "005930.KS": "Samsung",
     "000660.KS": "SK Hynix", "285A.T": "Kioxia", "ASML": "ASML",
     "AMAT": "Applied Materials", "LRCX": "Lam Research", "KLAC": "KLA"
 }
 
-GEWICHTE = {
-    "Forward KGV": 0.25, "KGV": 0.05, "PEG Ratio": 0.10, "EV/EBITDA": 0.10,
-    "EPS Wachstum": 0.15, "Umsatz Wachstum": 0.10, "FCF Rendite": 0.15, "Net Debt/EBITDA": 0.10
+AI_EXPOSURE = {
+    "NVDA":100, "AVGO":95, "000660.KS":90, "TSM":90,
+    "MU":85, "AMD":80, "005930.KS":80, "ASML":80,
+    "KLAC":75, "LRCX":75, "AMAT":75, "SNDK":70, "285A.T":60
 }
 
-GSHEET_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-LOG_WORKSHEET_NAME = "Log"
+STRAT_BEDEUTUNG = {
+    "ASML":100, "TSM":100, "NVDA":95, "AMAT":90, "LRCX":90, "KLAC":90,
+    "AVGO":85, "000660.KS":80, "MU":80, "AMD":75, "005930.KS":75, "SNDK":70, "285A.T":60
+}
 
+SPEICHER_AKTIEN = ["MU", "SNDK", "000660.KS", "285A.T", "005930.KS"]
+KI_INFRA = ["NVDA", "AVGO", "ASML", "TSM", "AMAT", "LRCX", "KLAC"]
 
-# ---------------- Passwortschutz ----------------
+# ========== CACHE ==========
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_yahoo_data_cached(symbol):
+    return get_yahoo_data(symbol)
 
-def check_password():
-    """Zeigt ein Passwortfeld, bis das korrekte Passwort aus st.secrets eingegeben wurde."""
+# ========== GEWICHTE ==========
+BASE_KURZ = {"Bewertung":0.30, "Zyklus":0.25, "Wachstum":0.20, "Qualität":0.15, "Moat":0.10}
+BASE_LANG = {"Bewertung":0.20, "Zyklus":0.10, "Wachstum":0.20, "Qualität":0.30, "Moat":0.40}
 
-    def password_entered():
-        if st.session_state.get("password_input") == st.secrets["app"]["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password_input"]
-        else:
-            st.session_state["password_correct"] = False
+def get_gewichte_interpoliert(horizont):
+    t = np.clip((horizont - 3) / (120 - 3), 0, 1)
+    gew = {}
+    for k in BASE_KURZ:
+        gew[k] = BASE_KURZ[k] * (1-t) + BASE_LANG[k] * t
+    return {
+        "Forward KGV": gew["Bewertung"] * 0.4,
+        "EV/EBITDA": gew["Bewertung"] * 0.4,
+        "PEG": gew["Bewertung"] * 0.2,
+        "Zykluswirkung": gew["Zyklus"],
+        "Umsatz CAGR 5Y": gew["Wachstum"] * 0.5,
+        "EPS CAGR 5Y": gew["Wachstum"] * 0.3,
+        "EPS Revision 3M": gew["Wachstum"] * 0.2,
+        "Bruttomarge": gew["Qualität"] * 0.25,
+        "Operating Margin": gew["Qualität"] * 0.25,
+        "FCF Marge": gew["Qualität"] * 0.25,
+        "FCF Positiv": gew["Qualität"] * 0.15,
+        "Net Debt/EBITDA": gew["Qualität"] * 0.10,
+        "Moat Score": gew["Moat"] * 0.5,
+        "AI Exposure": gew["Moat"] * 0.3,
+        "Strategische Bedeutung": gew["Moat"] * 0.2
+    }
 
-    if st.session_state.get("password_correct"):
-        return True
-
-    st.text_input(
-        "Passwort", type="password", on_change=password_entered, key="password_input"
-    )
-    if st.session_state.get("password_correct") is False:
-        st.error("Falsches Passwort.")
-    return False
-
-
-# ---------------- Google Sheets ----------------
-
-@st.cache_resource
-def get_gsheet_client():
-    creds = Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"]), scopes=GSHEET_SCOPES
-    )
-    return gspread.authorize(creds)
-
-
-def get_log_worksheet():
-    client = get_gsheet_client()
-    sheet = client.open_by_key(st.secrets["gsheet"]["sheet_id"])
+# ========== BERECHNUNGEN ==========
+def get_cagr(ticker_obj, metric_name):
     try:
-        return sheet.worksheet(LOG_WORKSHEET_NAME)
-    except gspread.exceptions.WorksheetNotFound:
-        return sheet.add_worksheet(title=LOG_WORKSHEET_NAME, rows=2000, cols=30)
+        income = ticker_obj.financials
+        series = income.loc[metric_name].dropna()
+        if len(series) < 3: return np.nan
+        start = series.iloc[-1]
+        ende = series.iloc[0]
+        jahre = len(series) - 1
+        if start <= 0: return np.nan
+        return (ende / start) ** (1/jahre) - 1
+    except:
+        return np.nan
 
-
-def append_export_to_gsheet(df):
-    ws = get_log_worksheet()
-    if not ws.get_all_values():
-        ws.append_row(df.columns.tolist())
-    rows = df.fillna("").astype(str).values.tolist()
-    ws.append_rows(rows, value_input_option="USER_ENTERED")
-
-
-def get_last_export_from_gsheet():
+def get_eps_revision(ticker_obj):
     try:
-        ws = get_log_worksheet()
-        values = ws.get_all_values()
-        if len(values) > 1:
-            last = values[-1]
-            return f"{last[0]} {last[1]}"  # Datum, Uhrzeit
-    except Exception:
-        pass
-    return "Noch kein Export"
+        revisions = ticker_obj.revisions
+        if revisions is None or revisions.empty: return 50
+        rev_3m = revisions.tail(3)["earningsEstimate"].pct_change().mean() * 100
+        return np.clip(50 + rev_3m * 5, 0, 100)
+    except:
+        return 50
 
+def calc_moat_score_semiconductor(ticker_obj, info):
+    try:
+        gm = info.get("grossMargins", 0) * 100
+        om = info.get("operatingMargins", 0) * 100
+        cagr = get_cagr(ticker_obj, "Total Revenue") * 100
+        marketcap = info.get("marketCap", 1e9)
+        market_score = np.clip(np.log10(marketcap) * 10, 0, 100)
+        tech_score = gm * 0.6 + om * 0.4
+        margin_score = gm * 0.5 + om * 0.5
+        retention_score = np.clip((cagr + 10) * 2, 0, 100)
+        pricing_score = gm
+        return market_score*0.3 + tech_score*0.25 + margin_score*0.2 + retention_score*0.15 + pricing_score*0.1
+    except:
+        return 50
 
-# ---------------- Excel-Formatierung ----------------
+def get_zyklus_score(symbol, data, info, horizont):
+    eps_growth = data.get("EPS CAGR 5Y", 0)
+    eps_score = np.clip((eps_growth * 100 + 20) * 2, 0, 100)
 
-def format_excel_sheet(ws, df):
-    """Rahmen, Freeze/Filter, Prozentformat, rechtsbündige Kennzahlen und
-    farbcodierte Bewertungsspalte auf ein bereits befülltes Worksheet anwenden."""
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                          top=Side(style='thin'), bottom=Side(style='thin'))
-    GRUEN = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-    GELB = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-    ROT = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    gm_aktuell = info.get("grossMargins", 0)
+    margin_trend_score = 50
+    try:
+        financials = data.get("_ticker").financials
+        gm_series = (financials.loc["Gross Profit"] / financials.loc["Total Revenue"]).dropna()
+        if len(gm_series) >= 3:
+            avg_3y = gm_series.iloc[:3].mean()
+            diff = (gm_aktuell - avg_3y) * 100
+            margin_trend_score = np.clip(50 + diff * 10, 0, 100)
+    except: pass
 
-    header = [c.value for c in ws[1]]
-    def col_idx(name):
-        return header.index(name) + 1 if name in header else None
+    nachfrage = 80 if symbol in KI_INFRA else 70 if symbol in SPEICHER_AKTIEN else 50
+    fwd_pe = info.get("forwardPE", 20)
+    bewertung_score = np.clip((30 - fwd_pe) * 5, 0, 100)
+    zyklus = eps_score*0.4 + margin_trend_score*0.3 + nachfrage*0.2 + bewertung_score*0.1
+    if horizont > 60: zyklus = zyklus * 0.7 + 50 * 0.3
+    return zyklus
 
-    prozent_spalten = ["EPS Wachstum", "Umsatz Wachstum", "FCF Rendite"]
-    rechts_spalten = ["KGV", "Forward KGV", "PEG Ratio", "EV/EBITDA"]
-    bewertung_idx = col_idx("Bewertung")
+def get_yahoo_data(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        fast = ticker.fast_info
+        kurs = getattr(fast, 'last_price', None)
+        marketcap = getattr(fast, 'market_cap', None)
+        info = ticker.info or {}
+        financials = ticker.financials
+        cashflow = ticker.cashflow
 
-    ws.sheet_view.showGridLines = True
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = ws.dimensions
+        if kurs is None or pd.isna(kurs):
+            hist = ticker.history(period="1d")
+            kurs = hist["Close"].iloc[-1] if not hist.empty else None
+        if kurs is None or pd.isna(kurs): return None
 
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        for cell in row:
-            cell.border = thin_border
-        for name in prozent_spalten:
-            idx = col_idx(name)
-            if idx:
-                row[idx - 1].number_format = '0.00"%"'
-        for name in rechts_spalten:
-            idx = col_idx(name)
-            if idx:
-                row[idx - 1].alignment = Alignment(horizontal="right")
-        if bewertung_idx:
-            val = row[bewertung_idx - 1].value or ""
-            if "attraktiv" in val:
-                row[bewertung_idx - 1].fill = GRUEN
-            elif "fair" in val:
-                row[bewertung_idx - 1].fill = GELB
-            elif "teuer" in val:
-                row[bewertung_idx - 1].fill = ROT
+        forward_kgv = info.get("forwardPE")
+        peg = info.get("pegRatio")
+        growth = info.get("earningsGrowth")
+        if peg is None and forward_kgv and growth and growth > 0:
+            peg = forward_kgv / (growth * 100)
 
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or '')) for cell in col)
-        col_letter = get_column_letter(col[0].column)
-        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
-
-
-def build_excel_bytes(df):
-    buffer = io.BytesIO()
-    df.to_excel(buffer, index=False, engine="openpyxl")
-    buffer.seek(0)
-    wb = load_workbook(buffer)
-    ws = wb.active
-    format_excel_sheet(ws, df)
-    out = io.BytesIO()
-    wb.save(out)
-    return out.getvalue()
-
-
-# ---------------- Kursdaten & Ranking ----------------
-
-def _fast_info_get(fast, key_camel, key_snake, default=None):
-    """Robuster Zugriff auf fast_info: die Attribut-Namen unterscheiden sich
-    zwischen yfinance-Versionen (camelCase-Keys vs. snake_case-Attribute).
-    Nicht live getestet (kein Netzwerkzugriff in dieser Umgebung) -
-    vor produktivem Einsatz einmal gegen die installierte yfinance-Version prüfen."""
-    for accessor in (
-        lambda: fast[key_camel],
-        lambda: getattr(fast, key_snake),
-        lambda: fast.get(key_camel),
-    ):
+        fcf, revenue = None, None
         try:
-            val = accessor()
-            if val is not None and not (isinstance(val, float) and pd.isna(val)):
-                return val
-        except Exception:
-            continue
-    return default
-
-
-def get_yahoo_data(symbol, is_pflicht=False):
-    max_retries = 10 if is_pflicht else 3
-    for _ in range(max_retries):
-        try:
-            f = io.StringIO()
-            with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
-                ticker = yf.Ticker(symbol)
-                fast = ticker.fast_info
-
-            kurs = _fast_info_get(fast, "lastPrice", "last_price")
-            marketcap = _fast_info_get(fast, "marketCap", "market_cap")
-
-            if kurs is None or pd.isna(kurs):
-                with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
-                    hist = ticker.history(period="1d")
-                kurs = hist["Close"].iloc[-1] if not hist.empty else None
-
-            try:
-                with contextlib.redirect_stderr(f), contextlib.redirect_stdout(f):
-                    info = ticker.info or {}
-            except Exception:
-                info = {}
-
-            if kurs is None or pd.isna(kurs):
-                kurs = info.get("currentPrice") or info.get("regularMarketPrice")
-            if kurs is None or pd.isna(kurs):
-                time.sleep(2)
-                continue
-
-            if not marketcap:
-                marketcap = info.get("marketCap")
-
-            kgv = info.get("trailingPE")
-            if kgv is None and kurs and info.get("trailingEps") and info.get("trailingEps") != 0:
-                kgv = kurs / info.get("trailingEps")
-
-            forward_pe = info.get("forwardPE")
-            growth = info.get("earningsGrowth")
-
-            peg = info.get("pegRatio")
-            if peg is None and forward_pe and growth and growth > 0:
-                peg = forward_pe / (growth * 100)
-
+            fcf = cashflow.loc["Free Cash Flow"].iloc[0]
+            revenue = financials.loc["Total Revenue"].iloc[0]
+        except:
             fcf = info.get("freeCashflow")
-            fcf_rendite = np.nan
-            if fcf is not None and marketcap:
-                fcf_rendite = (fcf / marketcap) if fcf > 0 else np.nan
+            revenue = info.get("totalRevenue")
+        fcf_marge = (fcf / revenue) if (fcf and revenue and revenue!= 0) else np.nan
+        fcf_positiv = 100 if pd.notna(fcf) and fcf > 0 else 0
 
-            debt = info.get("totalDebt"); cash = info.get("totalCash"); ebitda = info.get("ebitda")
-            net_debt_ebitda = ((debt - cash) / ebitda) if (debt is not None and cash is not None and ebitda and ebitda > 0) else None
+        debt = info.get("totalDebt") or 0
+        cash = info.get("totalCash") or 0
+        ebitda = info.get("ebitda")
+        net_debt_ebitda = np.nan
+        if ebitda and ebitda!= 0:
+            net_debt_ebitda = np.clip((debt - cash) / ebitda, -5, 10)
 
-            return {
-                "Ticker": symbol, "Name": info.get("shortName") or st.session_state.namen.get(symbol, symbol),
-                "Kurs": kurs, "KGV": kgv, "Forward KGV": forward_pe,
-                "PEG Ratio": peg, "EV/EBITDA": info.get("enterpriseToEbitda"),
-                "EPS Wachstum": growth, "Umsatz Wachstum": info.get("revenueGrowth"),
-                "FCF Rendite": fcf_rendite, "Net Debt/EBITDA": net_debt_ebitda
-            }
-        except Exception:
-            time.sleep(3 if is_pflicht else 1.5)
-    return "PFLICHT_FEHLER" if is_pflicht else None
+        return {
+            "Ticker": symbol,
+            "Name": info.get("shortName") or namen.get(symbol, symbol),
+            "_ticker": ticker,
+            "Marktkapitalisierung Mrd": (marketcap / 1e9).round(1) if marketcap else np.nan,
+            "Kurs": kurs,
+            "Forward KGV": forward_kgv,
+            "EV/EBITDA": info.get("enterpriseToEbitda"),
+            "PEG": peg,
+            "Umsatz CAGR 5Y": get_cagr(ticker, "Total Revenue"),
+            "EPS CAGR 5Y": get_cagr(ticker, "Diluted EPS"),
+            "EPS Revision 3M": get_eps_revision(ticker),
+            "Bruttomarge": info.get("grossMargins"),
+            "Operating Margin": info.get("operatingMargins"),
+            "FCF Marge": fcf_marge,
+            "FCF Positiv": fcf_positiv,
+            "Net Debt/EBITDA": net_debt_ebitda,
+            "Moat Score": calc_moat_score_semiconductor(ticker, info),
+            "AI Exposure": AI_EXPOSURE.get(symbol, 50),
+            "Strategische Bedeutung": STRAT_BEDEUTUNG.get(symbol, 50)
+        }
+    except:
+        return None
 
+def berechne_scores(df, horizont):
+    gewichte = get_gewichte_interpoliert(horizont)
+    niedrig = ["Forward KGV", "EV/EBITDA", "PEG", "Net Debt/EBITDA"]
 
-def run_ranking(aktien_liste, status_placeholder, progress_bar):
-    daten, fehlgeschlagen = [], []
+    def niedrig_besser(x):
+        if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
+        lo, hi = x.quantile(0.05), x.quantile(0.95)
+        if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
+        return (1 - ((x.clip(lo, hi) - lo) / (hi - lo))) * 100
 
+    def hoch_besser(x):
+        if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
+        lo, hi = x.quantile(0.05), x.quantile(0.95)
+        if pd.isna(lo) or pd.isna(hi) or hi == lo: return pd.Series(50.0, index=x.index)
+        return ((x.clip(lo, hi) - lo) / (hi - lo)) * 100
+
+    score = pd.Series(0.0, index=df.index)
+    for k, w in gewichte.items():
+        if k in df.columns:
+            einzel = niedrig_besser(df[k]) if k in niedrig else hoch_besser(df[k])
+            score += einzel.fillna(50) * w
+    df["Gesamtscore"] = score.round(1)
+    df["Bewertung"] = df["Gesamtscore"].apply(
+        lambda x: "🟢 attraktiv" if x >= 75 else "🟡 fair" if x >= 50 else "🔴 teuer"
+    )
+    return df
+
+# ========== UI ==========
+st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
+st.caption("Cycle Adjusted Quality Model - Bewertung abhängig vom Anlagehorizont")
+
+col1, col2 = st.columns([2,1])
+with col1:
+    horizont = st.slider("Anlagehorizont in Monaten", 3, 120, 24, 1)
+    st.write(f"**{horizont} Monate:** {'Taktisch' if horizont <= 12 else 'Balanced' if horizont <= 36 else 'Strategisch'}")
+
+with col2:
+    aktien_input = st.text_area("Ticker, Komma getrennt", ", ".join(aktien_default), height=100)
+    aktien_liste = [x.strip().upper() for x in aktien_input.split(",") if x.strip()]
+
+if st.button("Ranking starten", type="primary"):
+    progress = st.progress(0)
+    status = st.empty()
+
+    daten = []
     for i, symbol in enumerate(aktien_liste):
-        is_pflicht = (symbol == "SNDK")
-        status_placeholder.write(f"Lade {symbol} …")
-        data = get_yahoo_data(symbol, is_pflicht)
-
-        if data == "PFLICHT_FEHLER":
-            st.error("⚠️ SERVER DOWN — SNDK konnte nach 10 Versuchen nicht geladen werden. Bitte später nochmals versuchen.")
-            return None, fehlgeschlagen
+        status.text(f"Lade {symbol}...")
+        data = get_yahoo_data_cached(symbol)
         if data:
+            data["Zykluswirkung"] = get_zyklus_score(symbol, data, data["_ticker"].info, horizont)
             daten.append(data)
-        else:
-            fehlgeschlagen.append(symbol)
-        progress_bar.progress((i + 1) / len(aktien_liste))
+        progress.progress((i+1)/len(aktien_liste))
 
-    if len(daten) < 5:
-        st.error("❌ Zu wenige Daten. Bitte später nochmal probieren.")
-        return None, fehlgeschlagen
+    if len(daten) < 3:
+        st.error("Zu wenige Daten geladen")
+        st.stop()
 
     df = pd.DataFrame(daten)
     for c in df.columns:
-        if c not in ["Ticker", "Name"]:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name", "_ticker"]: df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    for col in ["Forward KGV", "KGV", "PEG Ratio"]:
-        if col in df.columns:
-            df[col] = df[col].apply(lambda x: np.nan if (pd.notna(x) and x <= 0) else x)
+    for col in ["Forward KGV", "EV/EBITDA", "PEG"]:
+        if col in df.columns: df[col] = df[col].apply(lambda x: np.nan if (pd.notna(x) and x <= 0) else x)
 
-    if "EV/EBITDA" in df.columns:
-        df["EV/EBITDA"] = df["EV/EBITDA"].apply(
-            lambda x: np.nan if (pd.notna(x) and (x <= 0 or x > 100)) else x
+    df = berechne_scores(df, horizont)
+    df = df.sort_values("Gesamtscore", ascending=False)
+    df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
+
+    # Formatierung
+    df["Kurs"] = df["Kurs"].round(2)
+    df["Forward KGV"] = df["Forward KGV"].round(1)
+    df["EV/EBITDA"] = df["EV/EBITDA"].round(1)
+    df["PEG"] = df["PEG"].round(2)
+    for c in ["Umsatz CAGR 5Y", "EPS CAGR 5Y", "Bruttomarge", "Operating Margin", "FCF Marge"]:
+        df[c] = (df[c] * 100).round(2)
+
+    st.success(f"Fertig! {len(df)} Aktien gerankt")
+
+    # Tabs
+    tab1, tab2, tab3 = st.tabs(["Ranking", "Details", "Export"])
+
+    with tab1:
+        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Bewertung","Zykluswirkung","Forward KGV","Moat Score"]],
+                     use_container_width=True, hide_index=True)
+
+    with tab2:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    with tab3:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Ranking')
+        st.download_button(
+            label="Excel herunterladen",
+            data=output.getvalue(),
+            file_name=f"Halbleiter_Ranking_{datetime.now().strftime('%Y-%m-%d')}_{horizont}M.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    def niedrig_besser(x, q_low=0.05, q_high=0.95):
-        lo, hi = x.quantile(q_low), x.quantile(q_high)
-        if pd.isna(lo) or pd.isna(hi) or hi == lo:
-            return pd.Series(50.0, index=x.index)
-        clipped = x.clip(lo, hi)
-        return (hi - clipped) / (hi - lo) * 100
+    # Erklärung
+    with st.expander("Gewichtung für diesen Horizont"):
+        gew = get_gewichte_interpoliert(horizont)
+        gew_df = pd.DataFrame.from_dict(gew, orient='index', columns=['Gewicht']).sort_values('Gewicht', ascending=False)
+        gew_df['Gewicht'] = (gew_df['Gewicht']*100).round(1).astype(str) + "%"
+        st.dataframe(gew_df, use_container_width=True)
 
-    def hoch_besser(x, q_low=0.05, q_high=0.95):
-        lo, hi = x.quantile(q_low), x.quantile(q_high)
-        if pd.isna(lo) or pd.isna(hi) or hi == lo:
-            return pd.Series(50.0, index=x.index)
-        clipped = x.clip(lo, hi)
-        return (clipped - lo) / (hi - lo) * 100
-
-    niedrig = ["Forward KGV", "KGV", "PEG Ratio", "EV/EBITDA", "Net Debt/EBITDA"]
-
-    score = pd.Series(0.0, index=df.index)
-    gewicht_vorhanden = pd.Series(0.0, index=df.index)
-    for kennzahl, gewicht in GEWICHTE.items():
-        if df[kennzahl].notna().sum() < 2:
-            continue
-        einzel_score = niedrig_besser(df[kennzahl]) if kennzahl in niedrig else hoch_besser(df[kennzahl])
-        vorhanden = df[kennzahl].notna()
-        score += einzel_score.where(vorhanden, 0) * gewicht
-        gewicht_vorhanden += vorhanden * gewicht
-
-    df["Gesamtscore"] = (score / gewicht_vorhanden.replace(0, np.nan)).round(1)
-    datenqualitaet = pd.Series(0.0, index=df.index)
-    for k, w in GEWICHTE.items():
-        datenqualitaet += df[k].notna() * w
-    df["Datenqualität"] = (datenqualitaet * 100).round(0)
-    df["Adjustierter Score"] = (df["Gesamtscore"] * (0.5 + 0.5 * (df["Datenqualität"] / 100))).round(1)
-
-    df["Bewertung"] = df["Adjustierter Score"].apply(lambda x: "🟢 attraktiv" if x >= 75 else "🟡 fair" if x >= 50 else "🔴 teuer")
-    df["Kurs"] = df["Kurs"].round(2)
-    for c in ["KGV", "Forward KGV", "EV/EBITDA"]:
-        df[c] = df[c].round(1)
-    df["PEG Ratio"] = df["PEG Ratio"].round(2)
-    for c in ["EPS Wachstum", "Umsatz Wachstum", "FCF Rendite"]:
-        df[c] = (df[c] * 100).round(2)
-    df = df.sort_values("Adjustierter Score", ascending=False)
-
-    jetzt = datetime.now()
-    df.insert(0, "Uhrzeit", jetzt.strftime("%H:%M:%S"))
-    df.insert(0, "Datum", jetzt.strftime("%Y-%m-%d"))
-
-    status_placeholder.empty()
-    progress_bar.empty()
-    return df, fehlgeschlagen
-
-
-# ================= UI =================
-
-if not check_password():
-    st.stop()
-
-if "aktien" not in st.session_state:
-    st.session_state.aktien = DEFAULT_AKTIEN.copy()
-if "namen" not in st.session_state:
-    st.session_state.namen = NAMEN.copy()
-if "last_export" not in st.session_state:
-    st.session_state.last_export = get_last_export_from_gsheet()
-if "df_result" not in st.session_state:
-    st.session_state.df_result = None
-
-st.title("📊 Halbleiter & KI Aktien Ranking")
-st.caption(f"{VERSION} · Letzter Export: {st.session_state.last_export}")
-
-col1, col2 = st.columns([3, 1])
-with col1:
-    new_ticker = st.text_input(
-        "Ticker hinzufügen", placeholder="z.B. GOOGL oder TSM", label_visibility="collapsed"
-    )
-with col2:
-    if st.button("➕ Hinzufügen", use_container_width=True):
-        t = new_ticker.upper().strip()
-        if not t:
-            pass
-        elif t in st.session_state.aktien:
-            st.warning("Der Wert ist schon vorhanden.")
-        else:
-            data = get_yahoo_data(t)
-            if data:
-                st.session_state.aktien.append(t)
-                st.session_state.namen[t] = data["Name"]
-                st.success(f"{t} ({data['Name']}) erfolgreich hinzugefügt.")
-            else:
-                st.error("Diesen Wert gibt es nicht oder der Server ist down.")
-
-st.write(f"**Aktuelle Liste ({len(st.session_state.aktien)}):** " + ", ".join(st.session_state.aktien))
-
-if st.button("🚀 Ranking starten", type="primary"):
-    status = st.empty()
-    progress_bar = st.progress(0)
-    df, fehlgeschlagen = run_ranking(st.session_state.aktien, status, progress_bar)
-    if df is not None:
-        st.session_state.df_result = df
-        if fehlgeschlagen:
-            st.warning(f"Übersprungen: {', '.join(fehlgeschlagen)}")
-        try:
-            append_export_to_gsheet(df)
-            st.session_state.last_export = f"{df['Datum'].iloc[0]} {df['Uhrzeit'].iloc[0]}"
-            st.success("✅ Fertig – im Google Sheet gespeichert")
-        except Exception as e:
-            st.warning(f"Ranking fertig, aber Speichern im Google Sheet ist fehlgeschlagen: {e}")
-
-if st.session_state.df_result is not None:
-    st.dataframe(st.session_state.df_result, use_container_width=True, hide_index=True)
-
-    st.download_button(
-        "⬇️ Als Excel herunterladen",
-        data=build_excel_bytes(st.session_state.df_result),
-        file_name=f"Halbleiter_Ranking_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+else:
+    st.info("Horizont wählen und auf 'Ranking starten' klicken")
