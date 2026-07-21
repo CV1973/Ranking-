@@ -1,6 +1,7 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.58
-# FIX: Rating System Strong Buy, Buy, Hold, Sell + Zyklusgewichtung
+# Halbleiter & KI Aktien Ranking v7.60
+# UPDATED: Hyperscaler_AI Sektor, Spin-Off Handling,
+# Korrigierte Dictionaries (MSFT, GOOGL, SNDK) & Zyklus-Fix
 # ============================================
 
 import streamlit as st
@@ -13,26 +14,51 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.58", layout="wide")
-VERSION = "v7.58"
+st.set_page_config(page_title="Halbleiter Ranking v7.60", layout="wide")
+VERSION = "v7.60"
 
+# Standard-Aktienliste
 if 'aktien_liste' not in st.session_state:
     st.session_state.aktien_liste = [
         "MU", "SNDK", "NVDA", "AMD", "AVGO", "TSM",
         "005930.KS", "000660.KS", "285A.T", "ASML",
-        "AMAT", "LRCX", "KLAC"
+        "AMAT", "LRCX", "KLAC", "MSFT", "GOOGL"
     ]
 
-namen = {"MU": "Micron", "SNDK": "SanDisk", "NVDA": "Nvidia", "AMD": "AMD", "AVGO": "Broadcom", "TSM": "TSMC", "005930.KS": "Samsung", "000660.KS": "SK Hynix", "285A.T": "Kioxia", "ASML": "ASML", "AMAT": "Applied Materials", "LRCX": "Lam Research", "KLAC": "KLA"}
-SEKTOR = {"NVDA": "KI_Chip", "AMD": "KI_Chip", "AVGO": "KI_Chip", "ASML": "Equipment", "AMAT": "Equipment", "LRCX": "Equipment", "KLAC": "Equipment", "TSM": "Foundry", "MU": "Speicher", "SNDK": "Speicher", "000660.KS": "Speicher", "285A.T": "Speicher", "005930.KS": "Speicher"}
-AI_EXPOSURE = {"NVDA":100, "AVGO":95, "000660.KS":90, "TSM":90, "MU":85, "AMD":80, "005930.KS":80, "ASML":80, "KLAC":75, "LRCX":75, "AMAT":75, "SNDK":70, "285A.T":60}
-STRAT_BEDEUTUNG = {"ASML":100, "TSM":100, "NVDA":95, "AMAT":90, "LRCX":90, "KLAC":90, "AVGO":85, "000660.KS":80, "MU":80, "AMD":75, "005930.KS":75, "SNDK":70, "285A.T":60}
+namen = {
+    "MU": "Micron", "SNDK": "SanDisk", "NVDA": "Nvidia", "AMD": "AMD", 
+    "AVGO": "Broadcom", "TSM": "TSMC", "005930.KS": "Samsung", 
+    "000660.KS": "SK Hynix", "285A.T": "Kioxia", "ASML": "ASML", 
+    "AMAT": "Applied Materials", "LRCX": "Lam Research", "KLAC": "KLA",
+    "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
+}
+
+SEKTOR = {
+    "NVDA": "KI_Chip", "AMD": "KI_Chip", "AVGO": "KI_Chip", 
+    "ASML": "Equipment", "AMAT": "Equipment", "LRCX": "Equipment", "KLAC": "Equipment", 
+    "TSM": "Foundry", 
+    "MU": "Speicher", "SNDK": "Speicher", "000660.KS": "Speicher", "285A.T": "Speicher", "005930.KS": "Speicher",
+    "MSFT": "Hyperscaler_AI", "GOOGL": "Hyperscaler_AI", "AMZN": "Hyperscaler_AI"
+}
+
+AI_EXPOSURE = {
+    "NVDA": 100, "AVGO": 95, "MSFT": 95, "GOOGL": 95, "000660.KS": 90, "TSM": 90, 
+    "AMZN": 90, "MU": 85, "AMD": 80, "005930.KS": 80, "ASML": 80, "KLAC": 75, 
+    "LRCX": 75, "AMAT": 75, "SNDK": 75, "285A.T": 60
+}
+
+STRAT_BEDEUTUNG = {
+    "ASML": 100, "TSM": 100, "NVDA": 95, "MSFT": 95, "GOOGL": 95, "AMAT": 90, 
+    "LRCX": 90, "KLAC": 90, "AMZN": 90, "AVGO": 85, "000660.KS": 80, "MU": 80, 
+    "AMD": 75, "005930.KS": 75, "SNDK": 75, "285A.T": 60
+}
 
 SEKTOR_MEDIANS = {
     "Equipment": {"KGV": 25, "EV_EBITDA": 15, "CAGR_REV": 0.08, "CAGR_EPS": 0.12, "GM": 0.55, "OM": 0.30, "FCF": 0.15, "PEG": 1.8, "NET_DEBT": 0.8},
     "Speicher": {"KGV": 10, "EV_EBITDA": 6, "CAGR_REV": 0.05, "CAGR_EPS": 0.08, "GM": 0.40, "OM": 0.20, "FCF": 0.10, "PEG": 1.2, "NET_DEBT": 1.5},
     "KI_Chip": {"KGV": 35, "EV_EBITDA": 25, "CAGR_REV": 0.25, "CAGR_EPS": 0.35, "GM": 0.70, "OM": 0.45, "FCF": 0.25, "PEG": 2.5, "NET_DEBT": 0.5},
-    "Foundry": {"KGV": 18, "EV_EBITDA": 12, "CAGR_REV": 0.15, "CAGR_EPS": 0.20, "GM": 0.55, "OM": 0.40, "FCF": 0.18, "PEG": 1.5, "NET_DEBT": 1.0}
+    "Foundry": {"KGV": 18, "EV_EBITDA": 12, "CAGR_REV": 0.15, "CAGR_EPS": 0.20, "GM": 0.55, "OM": 0.40, "FCF": 0.18, "PEG": 1.5, "NET_DEBT": 1.0},
+    "Hyperscaler_AI": {"KGV": 28, "EV_EBITDA": 18, "CAGR_REV": 0.12, "CAGR_EPS": 0.15, "GM": 0.60, "OM": 0.30, "FCF": 0.20, "PEG": 1.8, "NET_DEBT": 0.2}
 }
 
 def get_gewichte_sektor(horizont, sektor):
@@ -46,7 +72,6 @@ def get_gewichte_sektor(horizont, sektor):
     summe = sum(base.values())
     base = {k: v/summe for k,v in base.items()}
     
-    # FIX: Zykluswirkung wurde hier ergänzt
     return {
         "Forward KGV": base["Bewertung"] * 0.4, 
         "EV/EBITDA": base["Bewertung"] * 0.4, 
@@ -61,7 +86,7 @@ def get_gewichte_sektor(horizont, sektor):
         "Moat Score": base["Moat"] * 0.5, 
         "AI Exposure": base["Moat"] * 0.3, 
         "Strategische Bedeutung": base["Moat"] * 0.2,
-        "Zykluswirkung": base["Zyklus"] * 1.0 
+        "Zykluswirkung": base["Zyklus"] * 1.0
     }
 
 def safe_get(d, key, default=np.nan):
@@ -72,7 +97,7 @@ def safe_get(d, key, default=np.nan):
         return default
 
 def get_row_safe(df, possible_keys):
-    if df is None or df.empty: return np.nan
+    if df is None or df.empty: return pd.Series(dtype=float)
     for key in possible_keys:
         if key in df.index:
             series = df.loc[key].dropna()
@@ -98,7 +123,7 @@ def get_yahoo_data(symbol):
     fehlende_felder = []
     warnung = ""
     try:
-        time.sleep(1.2)
+        time.sleep(1.0)
         ticker = yf.Ticker(symbol)
         info = ticker.info or {}
         financials = ticker.financials
@@ -107,7 +132,7 @@ def get_yahoo_data(symbol):
 
         sektor = SEKTOR.get(symbol, "Foundry")
         if symbol not in SEKTOR:
-            warnung = "Unbekannter Ticker"
+            warnung = "Unbekannter Ticker (Fallback Foundry)"
             fehlende_felder.append("Sektor")
 
         kurs = safe_get(info, "currentPrice")
@@ -133,20 +158,38 @@ def get_yahoo_data(symbol):
             peg = SEKTOR_MEDIANS[sektor]["PEG"]
             fehlende_felder.append("PEG")
 
+        # --- Robuste CAGR & Spin-Off Logik ---
         cagr_rev = np.nan
         cagr_eps = np.nan
         rev_series = get_row_safe(financials, ["Total Revenue", "Revenue"])
         eps_series = get_row_safe(financials, ["Diluted EPS", "Diluted EPS (excl. Extra Items)", "Basic EPS"])
 
-        if len(rev_series) >= 3: cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
-        if len(eps_series) >= 3: cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
+        if len(rev_series) >= 3:
+            cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
+        elif len(rev_series) == 2:
+            cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1]) - 1
 
+        if len(eps_series) >= 3:
+            cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
+        elif len(eps_series) == 2:
+            cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1]) - 1
+
+        # Fallback für Spin-Offs (z. B. SNDK) mit fehlenden historischen Geschäftsberichten
         if pd.isna(cagr_rev):
-            cagr_rev = safe_get(info, "revenueGrowth", SEKTOR_MEDIANS[sektor]["CAGR_REV"])
-            fehlende_felder.append("CAGR")
+            cagr_rev = safe_get(info, "revenueGrowth")
+            if pd.isna(cagr_rev):
+                cagr_rev = SEKTOR_MEDIANS[sektor]["CAGR_REV"]
+                fehlende_felder.append("CAGR_REV")
+            else:
+                warnung = "Spin-off/Kürzliche Notierung"
+
         if pd.isna(cagr_eps):
-            cagr_eps = safe_get(info, "earningsGrowth", SEKTOR_MEDIANS[sektor]["CAGR_EPS"])
-            fehlende_felder.append("CAGR")
+            cagr_eps = safe_get(info, "earningsGrowth")
+            if pd.isna(cagr_eps):
+                cagr_eps = SEKTOR_MEDIANS[sektor]["CAGR_EPS"]
+                fehlende_felder.append("CAGR_EPS")
+            else:
+                warnung = "Spin-off/Kürzliche Notierung"
 
         gm = safe_get(info, "grossMargins")
         om = safe_get(info, "operatingMargins")
@@ -162,7 +205,7 @@ def get_yahoo_data(symbol):
         if len(fcf_series) > 0: fcf = fcf_series.iloc[0]
         if len(rev_series) > 0: revenue = rev_series.iloc[0]
 
-        fcf_marge = (fcf / revenue) if (pd.notna(fcf) and pd.notna(revenue) and revenue!= 0) else np.nan
+        fcf_marge = (fcf / revenue) if (pd.notna(fcf) and pd.notna(revenue) and revenue != 0) else np.nan
         if pd.isna(fcf_marge):
             fcf_marge = SEKTOR_MEDIANS[sektor]["FCF"]
             fehlende_felder.append("FCF")
@@ -171,7 +214,7 @@ def get_yahoo_data(symbol):
         cash = safe_get(info, "totalCash", 0)
         ebitda = safe_get(info, "ebitda")
 
-        net_debt_ebitda = (debt - cash) / ebitda if pd.notna(ebitda) and ebitda!= 0 else np.nan
+        net_debt_ebitda = (debt - cash) / ebitda if pd.notna(ebitda) and ebitda != 0 else np.nan
         if pd.isna(net_debt_ebitda):
             net_debt_ebitda = SEKTOR_MEDIANS[sektor]["NET_DEBT"]
             fehlende_felder.append("NetDebt")
@@ -184,13 +227,16 @@ def get_yahoo_data(symbol):
         moat = np.clip(market_score*0.4 + tech_score*0.3 + margin_score*0.3, 0, 100) * 0.7 + STRAT_BEDEUTUNG.get(symbol, 50) * 0.3
 
         eps_score = np.clip((cagr_eps * 100 + 20) * 2, 0, 100)
+        
+        # Sektorspezifische Bewertungs-Scales
         if sektor == "Equipment": bewertung_score = np.clip((40 - forward_kgv) * 3, 0, 100)
         elif sektor == "Speicher": bewertung_score = np.clip((15 - forward_kgv) * 6, 0, 100)
         elif sektor == "KI_Chip": bewertung_score = np.clip((50 - forward_kgv) * 2.5, 0, 100)
         elif sektor == "Foundry": bewertung_score = np.clip((25 - forward_kgv) * 5, 0, 100)
+        elif sektor == "Hyperscaler_AI": bewertung_score = np.clip((38 - forward_kgv) * 3, 0, 100)
         else: bewertung_score = 50
 
-        zyklus = eps_score*0.5 + 50*0.2 + bewertung_score*0.3
+        zyklus = eps_score * 0.5 + 50 * 0.2 + bewertung_score * 0.3
 
         data = {
             "Ticker": symbol, "Sektor": sektor, "Warnung": warnung,
@@ -217,6 +263,7 @@ def berechne_scores(df, horizont):
     for idx, row in df.iterrows():
         gewichte = get_gewichte_sektor(horizont, row["Sektor"])
         niedrig = ["Forward KGV", "EV/EBITDA", "PEG", "Net Debt/EBITDA"]
+        
         def norm(x, besser="hoch"):
             x = pd.to_numeric(x, errors='coerce').fillna(50)
             if x.notna().sum() < 2: return pd.Series(50.0, index=x.index)
@@ -232,7 +279,7 @@ def berechne_scores(df, horizont):
         scores.append(score)
     
     df["Gesamtscore"] = pd.Series(scores).round(1)
-    df["Rating"] = df.apply(lambda x: get_rating(x["Gesamtscore"], x["Zykluswirkung"], x["Fehlt"].split(", ") if x["Fehlt"]!= "vollständig" else []), axis=1)
+    df["Rating"] = df.apply(lambda x: get_rating(x["Gesamtscore"], x["Zykluswirkung"], x["Fehlt"].split(", ") if x["Fehlt"] != "vollständig" else []), axis=1)
     return df
 
 # ========== UI ==========
@@ -240,22 +287,27 @@ st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
 st.caption("Rating: STRONG BUY ≥80 | BUY ≥65 | HOLD ≥45 | SELL <45")
 
 col1, col2 = st.columns([1,2])
-with col1: horizont = st.selectbox("Anlagehorizont", [6, 12, 36], format_func=lambda x: f"{x} Monate")
+with col1: 
+    horizont = st.selectbox("Anlagehorizont", [6, 12, 36], format_func=lambda x: f"{x} Monate")
 with col2:
     such_ticker = st.text_input("Ticker hinzufügen")
     col_add, col_clear = st.columns(2)
     with col_add:
         if st.button("Hinzufügen") and such_ticker.upper():
-            if such_ticker.upper() not in st.session_state.aktien_liste: st.session_state.aktien_liste.append(such_ticker.upper())
+            if such_ticker.upper() not in st.session_state.aktien_liste: 
+                st.session_state.aktien_liste.append(such_ticker.upper())
             st.rerun()
     with col_clear:
-        if st.button("Liste leeren"): st.session_state.aktien_liste = []; st.rerun()
+        if st.button("Liste leeren"): 
+            st.session_state.aktien_liste = []
+            st.rerun()
 
-st.write(f"**Liste:** {', '.join(st.session_state.aktien_liste)}")
+st.write(f"**Aktuelle Liste:** {', '.join(st.session_state.aktien_liste)}")
 
 if st.button("Ranking starten", type="primary"):
     progress = st.progress(0); daten = []; fehler_log = []
     status = st.empty()
+    
     for i, symbol in enumerate(st.session_state.aktien_liste):
         status.text(f"Lade {symbol}... {i+1}/{len(st.session_state.aktien_liste)}")
         data, fehler = get_yahoo_data(symbol)
@@ -264,14 +316,17 @@ if st.button("Ranking starten", type="primary"):
         progress.progress((i+1)/len(st.session_state.aktien_liste))
 
     if fehler_log:
-        with st.expander(f"❌ Übersprungen: {len(fehler_log)}"):
+        with st.expander(f"❌ Übersprungen / Fehlerhafte Ticker ({len(fehler_log)})"):
             for f in fehler_log: st.write(f"- {f}")
 
-    if len(daten) < 2: st.error("Zu wenige Daten"); st.stop()
+    if len(daten) < 2: 
+        st.error("Zu wenige Daten für eine relative Bewertung erhalten.")
+        st.stop()
 
     df = pd.DataFrame(daten)
     for c in df.columns:
-        if c not in ["Ticker", "Name", "Sektor", "Datum", "Rating", "Fehlt", "Warnung"]: df[c] = pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name", "Sektor", "Datum", "Rating", "Fehlt", "Warnung"]: 
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
     df = berechne_scores(df, horizont).sort_values("Gesamtscore", ascending=False)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
@@ -279,21 +334,39 @@ if st.button("Ranking starten", type="primary"):
     for c in ["Umsatz CAGR 5Y", "EPS CAGR 5Y", "Bruttomarge", "Operating Margin", "FCF Marge"]:
         if c in df.columns: df[c] = (df[c] * 100).round(2)
 
-    st.success(f"✅ {len(df)} von {len(st.session_state.aktien_liste)} Aktien gerankt")
+    st.success(f"✅ {len(df)} von {len(st.session_state.aktien_liste)} Aktien erfolgreich bewertet!")
 
+    # Top KPI Metrics
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("STRONG BUY", len(df[df["Rating"].str.contains("STRONG BUY")]))
     with col2: st.metric("BUY", len(df[df["Rating"].str.contains("BUY") & ~df["Rating"].str.contains("STRONG")]))
     with col3: st.metric("HOLD", len(df[df["Rating"].str.contains("HOLD")]))
     with col4: st.metric("SELL", len(df[df["Rating"].str.contains("SELL")]))
 
-    tab1, tab2, tab3 = st.tabs(["Ranking", "Details", "Export"])
+    tab1, tab2, tab3 = st.tabs(["Ranking Overview", "Alle Detailkennzahlen", "Excel Export"])
+    
     with tab1:
-        df["Name"] = df.apply(lambda x: x["Name"] + " ⚠️" if x["Fehlt"]!= "vollständig" else x["Name"], axis=1)
-        df["Name"] = df.apply(lambda x: x["Name"] + " 🟠" if x["Warnung"] else x["Name"], axis=1)
-        st.dataframe(df[["Datum","Ticker","Name","Sektor","Gesamtscore","Rating","Zykluswirkung","Forward KGV","Fehlt"]], use_container_width=True, hide_index=True)
-    with tab2: st.dataframe(df, use_container_width=True, hide_index=True)
+        df_display = df.copy()
+        df_display["Name"] = df_display.apply(lambda x: x["Name"] + " ⚠️" if x["Fehlt"] != "vollständig" else x["Name"], axis=1)
+        df_display["Name"] = df_display.apply(lambda x: x["Name"] + " 🟠" if x["Warnung"] else x["Name"], axis=1)
+        
+        st.dataframe(
+            df_display[["Datum", "Ticker", "Name", "Sektor", "Gesamtscore", "Rating", "Zykluswirkung", "Forward KGV", "Warnung", "Fehlt"]], 
+            use_container_width=True, 
+            hide_index=True
+        )
+        
+    with tab2: 
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        
     with tab3:
         output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='Ranking')
-        st.download_button("Excel herunterladen", output.getvalue(), f"Halbleiter_Ranking_{datetime.now().strftime('%Y-%m-%d')}_{horizont}M.xlsx")
+        with pd.ExcelWriter(output, engine='openpyxl') as writer: 
+            df.to_excel(writer, index=False, sheet_name='Halbleiter_Ranking')
+        
+        st.download_button(
+            label="📊 Excel-Datei herunterladen", 
+            data=output.getvalue(), 
+            file_name=f"Halbleiter_Ranking_{datetime.now().strftime('%Y-%m-%d')}_{horizont}M.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
