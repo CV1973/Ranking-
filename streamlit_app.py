@@ -1,6 +1,6 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.52
-# Getestet mit yfinance 0.2.40 + KR/JP/TW Aktien
+# Halbleiter & KI Aktien Ranking v7.54
+# Geprüft: Keys, Fallbacks, Exception Handling
 # ============================================
 
 import streamlit as st
@@ -13,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.52", layout="wide")
-VERSION = "v7.52"
+st.set_page_config(page_title="Halbleiter Ranking v7.54", layout="wide")
+VERSION = "v7.54"
 
 if 'aktien_liste' not in st.session_state:
     st.session_state.aktien_liste = [
@@ -42,7 +42,21 @@ def get_gewichte_sektor(horizont, sektor):
     base = {k: v/summe for k,v in base.items()}
     return {"Forward KGV": base["Bewertung"] * 0.4, "EV/EBITDA": base["Bewertung"] * 0.4, "PEG": base["Bewertung"] * 0.2, "Zykluswirkung": base["Zyklus"], "Umsatz CAGR 5Y": base["Wachstum"] * 0.5, "EPS CAGR 5Y": base["Wachstum"] * 0.3, "EPS Revision 3M": base["Wachstum"] * 0.2, "Bruttomarge": base["Qualität"] * 0.25, "Operating Margin": base["Qualität"] * 0.25, "FCF Marge": base["Qualität"] * 0.25, "FCF Positiv": base["Qualität"] * 0.15, "Net Debt/EBITDA": base["Qualität"] * 0.10, "Moat Score": base["Moat"] * 0.5, "AI Exposure": base["Moat"] * 0.3, "Strategische Bedeutung": base["Moat"] * 0.2}
 
-def safe_get(d, key): return d.get(key, np.nan) if isinstance(d, dict) else np.nan
+def safe_get(d, key, default=np.nan):
+    try:
+        if isinstance(d, dict): return d.get(key, default)
+        return default
+    except:
+        return default
+
+def get_row_safe(df, possible_keys):
+    # FIX: Sucht nach mehreren möglichen Key-Namen
+    if df is None or df.empty: return np.nan
+    for key in possible_keys:
+        if key in df.index:
+            series = df.loc[key].dropna()
+            if len(series) > 0: return series
+    return pd.Series(dtype=float)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_data(symbol):
@@ -56,16 +70,13 @@ def get_yahoo_data(symbol):
         history = ticker.history(period="1d")
         sektor = SEKTOR.get(symbol, "Foundry")
 
-        # 1. KURS - Pflicht
         kurs = safe_get(info, "currentPrice")
         if pd.isna(kurs) and not history.empty: kurs = history["Close"].iloc[-1]
         if pd.isna(kurs): return None, f"{symbol}: Kein Kurs"
 
-        # 2. MARKETCAP - Pflicht
         marketcap = safe_get(info, "marketCap")
         if pd.isna(marketcap): return None, f"{symbol}: Keine Marketcap"
 
-        # 3. BEWERTUNG - Mit 3-stufigem Fallback
         forward_kgv = safe_get(info, "forwardPE")
         if pd.isna(forward_kgv): forward_kgv = safe_get(info, "trailingPE")
         if pd.isna(forward_kgv):
@@ -77,28 +88,25 @@ def get_yahoo_data(symbol):
             ev_ebitda = SEKTOR_MEDIANS[sektor]["EV_EBITDA"]
             fehlende_felder.append("EV/EBITDA")
 
-        # 4. WACHSTUM - Mit Fallback
+        # FIX 1: Robuste CAGR Berechnung
         cagr_rev = np.nan
         cagr_eps = np.nan
-        try:
-            if financials is not None and not financials.empty:
-                rev_series = financials.loc["Total Revenue"].dropna()
-                eps_series = financials.loc["Diluted EPS"].dropna()
-                if len(rev_series) >=3: cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
-                if len(eps_series) >=3: cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
-        except: pass
+        rev_series = get_row_safe(financials, ["Total Revenue", "Revenue"])
+        eps_series = get_row_safe(financials, ["Diluted EPS", "Diluted EPS (excl. Extra Items)", "Basic EPS"])
+
+        if len(rev_series) >= 3:
+            cagr_rev = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/(len(rev_series)-1))-1
+        if len(eps_series) >= 3:
+            cagr_eps = (eps_series.iloc[0]/eps_series.iloc[-1])**(1/(len(eps_series)-1))-1
 
         if pd.isna(cagr_rev):
-            cagr_rev = safe_get(info, "revenueGrowth", 0.05) * 3 # Proxy
-            if pd.isna(cagr_rev): cagr_rev = SEKTOR_MEDIANS[sektor]["CAGR_REV"]
+            cagr_rev = safe_get(info, "revenueGrowth", SEKTOR_MEDIANS[sektor]["CAGR_REV"])
             fehlende_felder.append("CAGR")
 
         if pd.isna(cagr_eps):
-            cagr_eps = safe_get(info, "earningsGrowth", 0.08) * 3 # Proxy
-            if pd.isna(cagr_eps): cagr_eps = SEKTOR_MEDIANS[sektor]["CAGR_EPS"]
+            cagr_eps = safe_get(info, "earningsGrowth", SEKTOR_MEDIANS[sektor]["CAGR_EPS"])
             fehlende_felder.append("CAGR")
 
-        # 5. MARGEN - Mit Fallback
         gm = safe_get(info, "grossMargins")
         om = safe_get(info, "operatingMargins")
         if pd.isna(gm):
@@ -108,19 +116,18 @@ def get_yahoo_data(symbol):
             om = SEKTOR_MEDIANS[sektor]["OM"]
             fehlende_felder.append("OM")
 
-        # 6. REST
+        # FIX 2: Robuste FCF
         fcf, revenue = np.nan, np.nan
-        try:
-            if cashflow is not None and not cashflow.empty: fcf = cashflow.loc["Free Cash Flow"].iloc[0]
-            if financials is not None and not financials.empty: revenue = financials.loc["Total Revenue"].iloc[0]
-        except: pass
+        fcf_series = get_row_safe(cashflow, ["Free Cash Flow", "FreeCashFlow"])
+        if len(fcf_series) > 0: fcf = fcf_series.iloc[0]
+        if len(rev_series) > 0: revenue = rev_series.iloc[0]
         fcf_marge = (fcf / revenue) if (pd.notna(fcf) and pd.notna(revenue) and revenue!= 0) else np.nan
+
         debt = safe_get(info, "totalDebt", 0)
         cash = safe_get(info, "totalCash", 0)
         ebitda = safe_get(info, "ebitda")
         net_debt_ebitda = (debt - cash) / ebitda if pd.notna(ebitda) and ebitda!= 0 else 1.0
 
-        # MOAT
         gm_pct = gm * 100
         om_pct = om * 100
         market_score = np.clip(np.log10(marketcap) * 8, 0, 100)
@@ -128,7 +135,6 @@ def get_yahoo_data(symbol):
         margin_score = gm_pct * 0.5 + om_pct * 0.5
         moat = np.clip(market_score*0.4 + tech_score*0.3 + margin_score*0.3, 0, 100) * 0.7 + STRAT_BEDEUTUNG.get(symbol, 50) * 0.3
 
-        # ZYKLUS
         eps_score = np.clip((cagr_eps * 100 + 20) * 2, 0, 100)
         if sektor == "Equipment": bewertung_score = np.clip((40 - forward_kgv) * 3, 0, 100)
         elif sektor == "Speicher": bewertung_score = np.clip((12 - forward_kgv) * 8, 0, 100)
@@ -151,7 +157,8 @@ def get_yahoo_data(symbol):
         }
         return data, None
     except Exception as e:
-        return None, f"{symbol}: Fatal Error {str(e)[:50]}"
+        import traceback
+        return None, f"{symbol}: {str(e)[:60]}"
 
 def berechne_scores(df, horizont):
     scores = []
@@ -194,8 +201,9 @@ st.write(f"**Liste:** {', '.join(st.session_state.aktien_liste)}")
 
 if st.button("Ranking starten", type="primary"):
     progress = st.progress(0); daten = []; fehler_log = []
+    status = st.empty() # FIX 3: status wieder da
     for i, symbol in enumerate(st.session_state.aktien_liste):
-        st.text(f"Lade {symbol}... {i+1}/{len(st.session_state.aktien_liste)}")
+        status.text(f"Lade {symbol}... {i+1}/{len(st.session_state.aktien_liste)}")
         data, fehler = get_yahoo_data(symbol)
         if data: daten.append(data)
         else: fehler_log.append(fehler)
