@@ -1,6 +1,6 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v7.40
-# Streamlit App - Cycle Adjusted Quality Model
+# Halbleiter & KI Aktien Ranking v7.41
+# Streamlit App - Cycle Adjusted + Robust Loading
 # ============================================
 
 import streamlit as st
@@ -13,10 +13,10 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v7.40", layout="wide")
+st.set_page_config(page_title="Halbleiter Ranking v7.41", layout="wide")
 
 # ========== CONFIG ==========
-VERSION = "v7.40"
+VERSION = "v7.41"
 aktien_default = [
     "MU", "SNDK", "NVDA", "AMD", "AVGO", "TSM",
     "005930.KS", "000660.KS", "285A.T", "ASML",
@@ -43,11 +43,6 @@ STRAT_BEDEUTUNG = {
 
 SPEICHER_AKTIEN = ["MU", "SNDK", "000660.KS", "285A.T", "005930.KS"]
 KI_INFRA = ["NVDA", "AVGO", "ASML", "TSM", "AMAT", "LRCX", "KLAC"]
-
-# ========== CACHE ==========
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_yahoo_data_cached(symbol):
-    return get_yahoo_data(symbol)
 
 # ========== GEWICHTE ==========
 BASE_KURZ = {"Bewertung":0.30, "Zyklus":0.25, "Wachstum":0.20, "Qualität":0.15, "Moat":0.10}
@@ -136,67 +131,74 @@ def get_zyklus_score(symbol, data, info, horizont):
     if horizont > 60: zyklus = zyklus * 0.7 + 50 * 0.3
     return zyklus
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_data(symbol):
-    try:
-        ticker = yf.Ticker(symbol)
-        fast = ticker.fast_info
-        kurs = getattr(fast, 'last_price', None)
-        marketcap = getattr(fast, 'market_cap', None)
-        info = ticker.info or {}
-        financials = ticker.financials
-        cashflow = ticker.cashflow
-
-        if kurs is None or pd.isna(kurs):
-            hist = ticker.history(period="1d")
-            kurs = hist["Close"].iloc[-1] if not hist.empty else None
-        if kurs is None or pd.isna(kurs): return None
-
-        forward_kgv = info.get("forwardPE")
-        peg = info.get("pegRatio")
-        growth = info.get("earningsGrowth")
-        if peg is None and forward_kgv and growth and growth > 0:
-            peg = forward_kgv / (growth * 100)
-
-        fcf, revenue = None, None
+    # FIX: Retry + Sleep gegen Yahoo Ban
+    for attempt in range(3):
         try:
-            fcf = cashflow.loc["Free Cash Flow"].iloc[0]
-            revenue = financials.loc["Total Revenue"].iloc[0]
+            time.sleep(2) # 2s Pause zwischen Requests
+            ticker = yf.Ticker(symbol)
+            fast = ticker.fast_info
+            kurs = getattr(fast, 'last_price', None)
+            marketcap = getattr(fast, 'market_cap', None)
+            info = ticker.info or {}
+            financials = ticker.financials
+            cashflow = ticker.cashflow
+
+            if kurs is None or pd.isna(kurs):
+                hist = ticker.history(period="1d")
+                kurs = hist["Close"].iloc[-1] if not hist.empty else None
+            if kurs is None or pd.isna(kurs): 
+                time.sleep(3)
+                continue
+
+            forward_kgv = info.get("forwardPE")
+            peg = info.get("pegRatio")
+            growth = info.get("earningsGrowth")
+            if peg is None and forward_kgv and growth and growth > 0:
+                peg = forward_kgv / (growth * 100)
+
+            fcf, revenue = None, None
+            try:
+                fcf = cashflow.loc["Free Cash Flow"].iloc[0]
+                revenue = financials.loc["Total Revenue"].iloc[0]
+            except:
+                fcf = info.get("freeCashflow")
+                revenue = info.get("totalRevenue")
+            fcf_marge = (fcf / revenue) if (fcf and revenue and revenue!= 0) else np.nan
+            fcf_positiv = 100 if pd.notna(fcf) and fcf > 0 else 0
+
+            debt = info.get("totalDebt") or 0
+            cash = info.get("totalCash") or 0
+            ebitda = info.get("ebitda")
+            net_debt_ebitda = np.nan
+            if ebitda and ebitda!= 0:
+                net_debt_ebitda = np.clip((debt - cash) / ebitda, -5, 10)
+
+            return {
+                "Ticker": symbol,
+                "Name": info.get("shortName") or namen.get(symbol, symbol),
+                "_ticker": ticker,
+                "Marktkapitalisierung Mrd": (marketcap / 1e9).round(1) if marketcap else np.nan,
+                "Kurs": kurs,
+                "Forward KGV": forward_kgv,
+                "EV/EBITDA": info.get("enterpriseToEbitda"),
+                "PEG": peg,
+                "Umsatz CAGR 5Y": get_cagr(ticker, "Total Revenue"),
+                "EPS CAGR 5Y": get_cagr(ticker, "Diluted EPS"),
+                "EPS Revision 3M": get_eps_revision(ticker),
+                "Bruttomarge": info.get("grossMargins"),
+                "Operating Margin": info.get("operatingMargins"),
+                "FCF Marge": fcf_marge,
+                "FCF Positiv": fcf_positiv,
+                "Net Debt/EBITDA": net_debt_ebitda,
+                "Moat Score": calc_moat_score_semiconductor(ticker, info),
+                "AI Exposure": AI_EXPOSURE.get(symbol, 50),
+                "Strategische Bedeutung": STRAT_BEDEUTUNG.get(symbol, 50)
+            }
         except:
-            fcf = info.get("freeCashflow")
-            revenue = info.get("totalRevenue")
-        fcf_marge = (fcf / revenue) if (fcf and revenue and revenue!= 0) else np.nan
-        fcf_positiv = 100 if pd.notna(fcf) and fcf > 0 else 0
-
-        debt = info.get("totalDebt") or 0
-        cash = info.get("totalCash") or 0
-        ebitda = info.get("ebitda")
-        net_debt_ebitda = np.nan
-        if ebitda and ebitda!= 0:
-            net_debt_ebitda = np.clip((debt - cash) / ebitda, -5, 10)
-
-        return {
-            "Ticker": symbol,
-            "Name": info.get("shortName") or namen.get(symbol, symbol),
-            "_ticker": ticker,
-            "Marktkapitalisierung Mrd": (marketcap / 1e9).round(1) if marketcap else np.nan,
-            "Kurs": kurs,
-            "Forward KGV": forward_kgv,
-            "EV/EBITDA": info.get("enterpriseToEbitda"),
-            "PEG": peg,
-            "Umsatz CAGR 5Y": get_cagr(ticker, "Total Revenue"),
-            "EPS CAGR 5Y": get_cagr(ticker, "Diluted EPS"),
-            "EPS Revision 3M": get_eps_revision(ticker),
-            "Bruttomarge": info.get("grossMargins"),
-            "Operating Margin": info.get("operatingMargins"),
-            "FCF Marge": fcf_marge,
-            "FCF Positiv": fcf_positiv,
-            "Net Debt/EBITDA": net_debt_ebitda,
-            "Moat Score": calc_moat_score_semiconductor(ticker, info),
-            "AI Exposure": AI_EXPOSURE.get(symbol, 50),
-            "Strategische Bedeutung": STRAT_BEDEUTUNG.get(symbol, 50)
-        }
-    except:
-        return None
+            time.sleep(4)
+    return None
 
 def berechne_scores(df, horizont):
     gewichte = get_gewichte_interpoliert(horizont)
@@ -218,7 +220,7 @@ def berechne_scores(df, horizont):
     for k, w in gewichte.items():
         if k in df.columns:
             einzel = niedrig_besser(df[k]) if k in niedrig else hoch_besser(df[k])
-            score += einzel.fillna(50) * w
+            score += einzel.fillna(50) * w # FIX: fehlende = 50
     df["Gesamtscore"] = score.round(1)
     df["Bewertung"] = df["Gesamtscore"].apply(
         lambda x: "🟢 attraktiv" if x >= 75 else "🟡 fair" if x >= 50 else "🔴 teuer"
@@ -241,19 +243,25 @@ with col2:
 if st.button("Ranking starten", type="primary"):
     progress = st.progress(0)
     status = st.empty()
+    fehler_liste = []
 
     daten = []
     for i, symbol in enumerate(aktien_liste):
-        status.text(f"Lade {symbol}...")
-        data = get_yahoo_data_cached(symbol)
+        status.text(f"Lade {symbol}... {i+1}/{len(aktien_liste)}")
+        data = get_yahoo_data(symbol)
         if data:
             data["Zykluswirkung"] = get_zyklus_score(symbol, data, data["_ticker"].info, horizont)
             daten.append(data)
+        else:
+            fehler_liste.append(symbol)
         progress.progress((i+1)/len(aktien_liste))
 
     if len(daten) < 3:
-        st.error("Zu wenige Daten geladen")
+        st.error(f"Zu wenige Daten geladen. Erfolgreich: {len(daten)}. Fehler: {', '.join(fehler_liste)}")
         st.stop()
+    
+    if fehler_liste:
+        st.warning(f"Übersprungen wegen Timeout: {', '.join(fehler_liste)}")
 
     df = pd.DataFrame(daten)
     for c in df.columns:
@@ -274,7 +282,7 @@ if st.button("Ranking starten", type="primary"):
     for c in ["Umsatz CAGR 5Y", "EPS CAGR 5Y", "Bruttomarge", "Operating Margin", "FCF Marge"]:
         df[c] = (df[c] * 100).round(2)
 
-    st.success(f"Fertig! {len(df)} Aktien gerankt")
+    st.success(f"Fertig! {len(df)} von {len(aktien_liste)} Aktien gerankt")
 
     # Tabs
     tab1, tab2, tab3 = st.tabs(["Ranking", "Details", "Export"])
@@ -284,12 +292,12 @@ if st.button("Ranking starten", type="primary"):
                      use_container_width=True, hide_index=True)
 
     with tab2:
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df.drop(columns=["_ticker"]), use_container_width=True, hide_index=True)
 
     with tab3:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Ranking')
+            df.drop(columns=["_ticker"]).to_excel(writer, index=False, sheet_name='Ranking')
         st.download_button(
             label="Excel herunterladen",
             data=output.getvalue(),
@@ -297,7 +305,7 @@ if st.button("Ranking starten", type="primary"):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    # Erklärung
+    # Gewichtung anzeigen
     with st.expander("Gewichtung für diesen Horizont"):
         gew = get_gewichte_interpoliert(horizont)
         gew_df = pd.DataFrame.from_dict(gew, orient='index', columns=['Gewicht']).sort_values('Gewicht', ascending=False)
