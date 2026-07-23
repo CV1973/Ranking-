@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.5
-# FIX: Kein automatischer Start der Auswertung mehr
+# AI Infrastructure Return Ranking v15.6
+# FIX FINAL: 0 Automatik. Nur Button startet Auswertung
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.5", layout="wide")
-VERSION = "v15.5"
+st.set_page_config(page_title="AI Return Ranking v15.6", layout="wide")
+VERSION = "v15.6"
 
 st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
 
@@ -29,8 +29,7 @@ DEFAULTS = {
     "aktien_liste": ["NVDA","000660.KS","005930.KS","TSM","MU","AVGO","ASML","AMD","AMAT","LRCX","KLAC","285A.T","SNDK","MSFT","GOOGL","AMZN"],
     "datenbank": {},
     "ticker_index": 0,
-    "ranking_start": False,
-    "assistent_fertig": False, # NEU: Extra Flag
+    "modus": "assistent", # NEU: 'assistent', 'fertig', 'ranking'. Kein bool mehr
     "web_vorschlaege": {},
     "version_loaded": ""
 }
@@ -43,7 +42,6 @@ if st.session_state.version_loaded!= VERSION:
     for key, val in DEFAULTS.items():
         st.session_state[key] = val
     st.session_state.version_loaded = VERSION
-    st.rerun()
 
 NAMEN = {"NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron", "AVGO":"Broadcom", "ASML":"ASML", "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research", "KLAC":"KLA", "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"}
 PFLICHT_KPIS = ["Forward_KGV","PEG","EV_EBITDA","FCF_Yield","Umsatz_Wachstum","OpMarge","FCF_Marge","Performance_52W"]
@@ -174,26 +172,18 @@ def ticker_hinzufuegen_box():
         neuer_ticker = st.text_input("Ticker Symbol", key="neuer_ticker_input", placeholder="z.B. INTC").upper().strip()
     with col2:
         if st.button("➕ Hinzufügen", key="btn_add_ticker"):
-            if not neuer_ticker:
-                st.warning("Bitte Ticker eingeben")
-                return
-            if neuer_ticker in st.session_state.aktien_liste:
-                st.warning(f"{neuer_ticker} ist bereits in der Liste")
-                return
+            if not neuer_ticker: st.warning("Bitte Ticker eingeben"); return
+            if neuer_ticker in st.session_state.aktien_liste: st.warning(f"{neuer_ticker} ist bereits in der Liste"); return
             with st.spinner(f"Prüfe {neuer_ticker}..."):
                 test_daten = yahoo_laden(neuer_ticker)
-            if test_daten is None:
-                st.error(f"{neuer_ticker} nicht gefunden")
-                return
+            if test_daten is None: st.error(f"{neuer_ticker} nicht gefunden"); return
             st.session_state.aktien_liste.append(neuer_ticker)
             st.success(f"{neuer_ticker} hinzugefügt")
             st.rerun()
 
-def assistenten_lauf():
-    # KRITISCH: Niemals automatisch ranking_start setzen
+def screen_assistent():
     if st.session_state.ticker_index >= len(st.session_state.aktien_liste):
-        st.session_state.assistent_fertig = True # Nur Flag setzen
-        st.success("Alle Ticker geprüft")
+        st.session_state.modus = "fertig" # Nur Modus wechseln. Kein Rerun
         return
 
     ticker = st.session_state.aktien_liste[st.session_state.ticker_index]
@@ -207,31 +197,50 @@ def assistenten_lauf():
     if fertig:
         naechster_ticker(); st.rerun()
 
-def fortschritt():
-    gesamt=len(st.session_state.aktien_liste); aktuell=st.session_state.ticker_index
-    if gesamt>0:
-        st.progress(aktuell/gesamt, text=f"{aktuell}/{gesamt} Aktien geprüft")
-        cols = st.columns(4)
-        for i, t in enumerate(st.session_state.aktien_liste):
-            with cols[i%4]: st.write(f"{status_text(t)} {t}")
+def screen_fertig():
+    st.success("✅ Datenerfassung abgeschlossen")
+    st.info(f"{len(st.session_state.aktien_liste)} Ticker in der Liste")
 
-def percentile_score(series, higher_better=True):
-    s = pd.to_numeric(series, errors="coerce"); valid = s.dropna()
-    if len(valid)<2: return pd.Series(50, index=s.index)
-    rank = valid.rank(pct=True)
-    if not higher_better: rank = 1-rank
-    result=pd.Series(50, index=s.index, dtype=float); result.loc[valid.index]=rank*100; return result
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Auswertung jetzt starten", type="primary", use_container_width=True):
+            st.session_state.modus = "ranking" # NUR HIER wird gestartet
+            st.rerun()
+    with col2:
+        if st.button("⬅️ Zurück zum Assistenten", use_container_width=True):
+            st.session_state.modus = "assistent"
+            st.rerun()
 
-def momentum_score(value):
-    if pd.isna(value): return np.nan
-    if value <= -0.20: return 0
-    elif value <= -0.10: return 33.3
-    elif value <= 0.10: return 50.0
-    elif value <= 0.50: return 66.7
-    elif value <= 1.00: return 83.3
-    else: return 100.0
+def screen_ranking():
+    st.success("Auswertung läuft...")
+    liste=[]; audit=[]
+    for ticker,obj in st.session_state.datenbank.items():
+        if obj["status"]=="fertig":
+            liste.append(obj["daten"]); audit.append(obj["audit"])
+    if len(liste)<2:
+        st.error("Zu wenige vollständige Aktien für Ranking")
+        if st.button("Zurück"):
+            st.session_state.modus = "fertig"; st.rerun()
+        return
 
-def berechne_ranking(df):
+    df=pd.DataFrame(liste)
+
+    # Ranking Berechnung
+    def percentile_score(series, higher_better=True):
+        s = pd.to_numeric(series, errors="coerce"); valid = s.dropna()
+        if len(valid)<2: return pd.Series(50, index=s.index)
+        rank = valid.rank(pct=True)
+        if not higher_better: rank = 1-rank
+        result=pd.Series(50, index=s.index, dtype=float); result.loc[valid.index]=rank*100; return result
+    def momentum_score(value):
+        if pd.isna(value): return np.nan
+        if value <= -0.20: return 0
+        elif value <= -0.10: return 33.3
+        elif value <= 0.10: return 50.0
+        elif value <= 0.50: return 66.7
+        elif value <= 1.00: return 83.3
+        else: return 100.0
+
     df["AI_Gewinnhebel"] = df["Performance_52W"].apply(momentum_score)
     kgv = percentile_score(df["Forward_KGV"], False); peg = percentile_score(df["PEG"], False)
     ev = percentile_score(df["EV_EBITDA"], False); fcf = percentile_score(df["FCF_Yield"], True)
@@ -241,10 +250,33 @@ def berechne_ranking(df):
     df["Gesamtscore"]=(df["AI_Gewinnhebel"]*0.35+df["Bewertung_Score"]*0.40+df["Gewinnqualitaet_Score"]*0.20+5).round(1)
     df=df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     ratings=["STRONG BUY" if i < len(df)*0.2 else "BUY" if i < len(df)*0.5 else "HOLD" for i in range(len(df))]
-    df["Rating"]=ratings; return df
+    df["Rating"]=ratings
+
+    df.insert(0,"Datum",datetime.now().strftime("%Y-%m-%d"))
+    for kpi in PFLICHT_KPIS:
+        df[f"{kpi}_Quelle"]=[a.get(kpi,{}).get("Quelle","") for a in audit]
+        df[f"{kpi}_Zeit"]=[a.get(kpi,{}).get("Zeit","") for a in audit]
+
+    st.subheader("Ranking")
+    st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
+    with st.expander("KPI Audit Trail"): st.dataframe(df, use_container_width=True, hide_index=True)
+    output=io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.6")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.6_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+
+    if st.button("⬅️ Zurück zur Übersicht"):
+        st.session_state.modus = "fertig"; st.rerun()
+
+def fortschritt():
+    gesamt=len(st.session_state.aktien_liste); aktuell=st.session_state.ticker_index
+    if gesamt>0:
+        st.progress(aktuell/gesamt, text=f"{aktuell}/{gesamt} Aktien geprüft")
+        cols = st.columns(4)
+        for i, t in enumerate(st.session_state.aktien_liste):
+            with cols[i%4]: st.write(f"{status_text(t)} {t}")
 
 # ============================================
-# APP START
+# APP START - 3 GETRENNTE SCREENS
 # ============================================
 
 st.title(f"AI Infrastructure Return Ranking {VERSION}")
@@ -252,50 +284,22 @@ st.title(f"AI Infrastructure Return Ranking {VERSION}")
 with st.sidebar:
     st.header("Steuerung")
     st.write(f"Version: {VERSION}")
-    st.write(f"Assistent: {'Fertig' if st.session_state.assistent_fertig else 'Läuft'}")
-    st.write(f"Index: {st.session_state.ticker_index}/{len(st.session_state.aktien_liste)}")
+    st.write(f"Modus: {st.session_state.modus}")
     if st.button("🔄 Hard Reset"):
         for key, val in DEFAULTS.items(): st.session_state[key] = val
         st.session_state.version_loaded = VERSION; st.rerun()
 
-# LOGIK: 3 Zustände
-if st.session_state.ranking_start:
-    # 3. ZUSTAND: AUSWERTUNG
-    st.success("Auswertung läuft...")
-    liste=[]; audit=[]
-    for ticker,obj in st.session_state.datenbank.items():
-        if obj["status"]=="fertig":
-            liste.append(obj["daten"]); audit.append(obj["audit"])
-    if len(liste)<2:
-        st.error("Zu wenige vollständige Aktien")
-        if st.button("Zurück zum Assistenten"):
-            st.session_state.ranking_start=False; st.rerun()
-        st.stop()
-    df=pd.DataFrame(liste); df=berechne_ranking(df)
-    df.insert(0,"Datum",datetime.now().strftime("%Y-%m-%d"))
-    for kpi in PFLICHT_KPIS:
-        df[f"{kpi}_Quelle"]=[a.get(kpi,{}).get("Quelle","") for a in audit]
-        df[f"{kpi}_Zeit"]=[a.get(kpi,{}).get("Zeit","") for a in audit]
-    st.subheader("Ranking")
-    st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
-    with st.expander("KPI Audit Trail"): st.dataframe(df, use_container_width=True, hide_index=True)
-    output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.5")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.5_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
-
-elif st.session_state.assistent_fertig:
-    # 2. ZUSTAND: WARTEN AUF START
-    st.info("Assistent abgeschlossen")
-    if st.button("✅ Auswertung jetzt starten", type="primary"):
-        st.session_state.ranking_start=True
-        st.rerun()
-    if st.button("Zurück zum Assistenten"):
-        st.session_state.assistent_fertig=False
-        st.rerun()
-
-else:
-    # 1. ZUSTAND: ASSISTENT
+if st.session_state.modus == "assistent":
     ticker_hinzufuegen_box()
     st.divider()
     fortschritt()
-    assistenten_lauf()
+    screen_assistent()
+
+elif st.session_state.modus == "fertig":
+    ticker_hinzufuegen_box() # Darf man noch
+    st.divider()
+    fortschritt()
+    screen_fertig()
+
+elif st.session_state.modus == "ranking":
+    screen_ranking()
