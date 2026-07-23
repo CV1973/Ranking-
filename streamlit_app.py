@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.8.1
-# FIX: Streamlit Session-State Bug bei text_input
+# AI Infrastructure Return Ranking v15.9
+# FIX: Vereinfachter Start. Nur Anzeige + Hinzufügen
 # ============================================
 
 import streamlit as st
@@ -16,10 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.8.1", layout="wide")
-VERSION = "v15.8.1"
-
-st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
+st.set_page_config(page_title="AI Return Ranking v15.9", layout="wide")
+VERSION = "v15.9"
 
 # ============================================
 # SESSION STATE
@@ -52,19 +50,15 @@ def safe_get(info, key):
     try: value = info.get(key); return np.nan if value is None else value
     except: return np.nan
 
-def parse_number(text): # ROBUSTE VERSION
-    if text is None:
-        return np.nan
+def parse_number(text):
+    if text is None: return np.nan
     text = str(text).strip()
-    if text == "":
-        return np.nan
+    if text == "": return np.nan
     text = text.replace(",", ".")
     try:
-        if "%" in text:
-            return float(text.replace("%","")) / 100
+        if "%" in text: return float(text.replace("%","")) / 100
         return float(text)
-    except:
-        return np.nan
+    except: return np.nan
 
 def web_suche_kpi(ticker, kpi):
     try:
@@ -124,42 +118,59 @@ def baue_abfrage_queue():
                     if not pd.isna(wert):
                         save_kpi(ticker, kpi, wert, "Yahoo")
             obj["status"] = "geladen"
-
         fehlend = fehlende_kpis(ticker)
         for kpi in fehlend:
             queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# SCREEN 1: SAMMELN
+# SCREEN 1: SAMMELN - VEREINFACHT
 # ============================================
 
 def screen_sammeln():
-    st.subheader("1. Ticker Liste")
-    ticker_text = st.text_area("Ticker Symbole, getrennt mit Komma", value=",".join(st.session_state.aktien_liste), height=100)
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
+    st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
+
+    st.subheader("Aktuelle Ticker Liste")
+
+    # PROFESSIONELLE ANZEIGE MIT HÄKCHEN
+    cols = st.columns(4)
+    for i, ticker in enumerate(st.session_state.aktien_liste):
+        with cols[i%4]:
+            name = NAMEN.get(ticker, ticker)
+            st.write(f"✓ {ticker} - {name}")
+
+    st.caption(f"{len(st.session_state.aktien_liste)} Aktien geladen")
+    st.info("Fehlende Werte werden später einzeln abgefragt.")
+
+    st.divider()
+
+    neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("💾 Liste übernehmen", use_container_width=True):
-            neue_liste = [t.strip().upper() for t in ticker_text.split(",") if t.strip()]
-            st.session_state.aktien_liste = list(dict.fromkeys(neue_liste))
-            st.success("Liste übernommen"); st.rerun()
-    with col2:
-        neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
         if st.button("➕ Hinzufügen", use_container_width=True):
             if neuer_ticker:
                 neuer_ticker = neuer_ticker.upper().strip()
-                if neuer_ticker in st.session_state.aktien_liste: st.warning(f"{neuer_ticker} ist bereits in der Liste")
+                if neuer_ticker in st.session_state.aktien_liste:
+                    st.warning(f"{neuer_ticker} ist bereits in der Liste")
                 else:
                     with st.spinner(f"Prüfe {neuer_ticker}..."):
-                        if yahoo_laden(neuer_ticker) is None: st.error(f"{neuer_ticker} nicht gefunden")
-                        else: st.session_state.aktien_liste.append(neuer_ticker); st.success(f"{neuer_ticker} hinzugefügt"); st.rerun()
+                        if yahoo_laden(neuer_ticker) is None:
+                            st.error(f"{neuer_ticker} nicht gefunden")
+                        else:
+                            st.session_state.aktien_liste.append(neuer_ticker)
+                            st.success(f"{neuer_ticker} hinzugefügt")
+                            st.rerun()
+    with col2:
+        if st.button("🗑️ Letzten entfernen", use_container_width=True):
+            if len(st.session_state.aktien_liste) > 1:
+                entfernt = st.session_state.aktien_liste.pop()
+                st.success(f"{entfernt} entfernt")
+                st.rerun()
 
     st.divider()
-    st.write(f"**{len(st.session_state.aktien_liste)} Ticker in Liste:**")
-    st.write(", ".join(st.session_state.aktien_liste))
-    st.divider()
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
-        with st.spinner("Lade Yahoo Daten..."):
+        with st.spinner("Lade Yahoo Daten und baue Abfrageliste..."):
             baue_abfrage_queue()
         st.session_state.modus = "uebersicht"
         st.rerun()
@@ -169,6 +180,7 @@ def screen_sammeln():
 # ============================================
 
 def screen_uebersicht():
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
     st.subheader("2. Daten-Übersicht")
 
     cols = st.columns(2)
@@ -200,10 +212,11 @@ def screen_uebersicht():
             st.session_state.modus = "sammeln"; st.rerun()
 
 # ============================================
-# SCREEN 3: ABFRAGE - MIT SESSION STATE FIX
+# SCREEN 3: ABFRAGE
 # ============================================
 
 def screen_abfrage():
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
     if len(st.session_state.abfrage_queue) == 0:
         st.session_state.modus = "ranking"; st.rerun(); return
 
@@ -215,7 +228,6 @@ def screen_abfrage():
     st.divider()
     st.write(f"### {KPI_LABELS[kpi]}"); st.info(KPI_HINTS[kpi])
 
-    # FIX: Key sauber initialisieren
     input_key = f"input_{ticker}_{kpi}"
     if input_key not in st.session_state:
         st.session_state[input_key] = ""
@@ -225,7 +237,7 @@ def screen_abfrage():
         st.success(f"Vorschlag: {vorschlag}")
         if st.button("Übernehmen", key=f"apply_web_{ticker}_{kpi}"):
             save_kpi(ticker, kpi, vorschlag, "Internet"); del st.session_state.web_vorschlaege[(ticker,kpi)]
-            del st.session_state[input_key] # Key löschen
+            del st.session_state[input_key]
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
     eingabe = st.text_input("Wert eingeben", key=input_key, placeholder="z.B. 0.08")
@@ -239,7 +251,7 @@ def screen_abfrage():
                 st.error(f"Keine gültige Zahl: '{raw}'")
                 return
             save_kpi(ticker, kpi, wert, "Manuell")
-            del st.session_state[input_key] # Key löschen
+            del st.session_state[input_key]
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
     with col2:
@@ -259,6 +271,7 @@ def screen_abfrage():
 # ============================================
 
 def screen_ranking():
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
     st.success("Auswertung läuft...")
     liste=[]; audit=[]
     for ticker in st.session_state.aktien_liste:
@@ -314,16 +327,14 @@ def screen_ranking():
         st.dataframe(audit_df, use_container_width=True, hide_index=True)
 
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.8.1")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.8.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.9")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.9_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
     if st.button("⬅️ Zurück zur Liste"):
         st.session_state.modus = "sammeln"; st.rerun()
 
 # ============================================
 # APP START
 # ============================================
-
-st.title(f"AI Infrastructure Return Ranking {VERSION}")
 
 if st.session_state.modus == "sammeln":
     screen_sammeln()
