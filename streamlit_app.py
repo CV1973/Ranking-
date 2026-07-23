@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.7
-# FIX FINAL: Sammelmodus. Erst Liste, dann Abfrage
+# AI Infrastructure Return Ranking v15.8.1
+# FIX: Streamlit Session-State Bug bei text_input
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.7", layout="wide")
-VERSION = "v15.7"
+st.set_page_config(page_title="AI Return Ranking v15.8.1", layout="wide")
+VERSION = "v15.8.1"
 
 st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
 
@@ -28,8 +28,8 @@ st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel u
 DEFAULTS = {
     "aktien_liste": ["NVDA","000660.KS","005930.KS","TSM","MU","AVGO","ASML","AMD","AMAT","LRCX","KLAC","285A.T","SNDK","MSFT","GOOGL","AMZN"],
     "datenbank": {},
-    "modus": "sammeln", # 'sammeln', 'abfrage', 'ranking'
-    "abfrage_queue": [], # Liste von (ticker, kpi) die noch fehlen
+    "modus": "sammeln", # 'sammeln', 'uebersicht', 'abfrage', 'ranking'
+    "abfrage_queue": [],
     "web_vorschlaege": {},
     "version_loaded": ""
 }
@@ -52,11 +52,19 @@ def safe_get(info, key):
     try: value = info.get(key); return np.nan if value is None else value
     except: return np.nan
 
-def parse_number(text):
-    if text is None or text == "": return np.nan
-    text = str(text).strip().replace(",", ".")
-    if "%" in text: return float(text.replace("%",""))/100
-    return float(text)
+def parse_number(text): # ROBUSTE VERSION
+    if text is None:
+        return np.nan
+    text = str(text).strip()
+    if text == "":
+        return np.nan
+    text = text.replace(",", ".")
+    try:
+        if "%" in text:
+            return float(text.replace("%","")) / 100
+        return float(text)
+    except:
+        return np.nan
 
 def web_suche_kpi(ticker, kpi):
     try:
@@ -82,7 +90,7 @@ def save_kpi(ticker,kpi,value,quelle):
 @st.cache_data(ttl=3600, show_spinner=False)
 def yahoo_laden(ticker):
     try:
-        time.sleep(1)
+        time.sleep(1.2)
         info = yf.Ticker(ticker).info or {}
         if not info: return None
         forward_kgv = safe_get(info, "forwardPE")
@@ -108,11 +116,15 @@ def baue_abfrage_queue():
     queue = []
     for ticker in st.session_state.aktien_liste:
         init_ticker(ticker)
-        daten = yahoo_laden(ticker)
-        if daten:
-            for kpi, wert in daten.items():
-                if not pd.isna(wert):
-                    save_kpi(ticker, kpi, wert, "Yahoo")
+        obj = st.session_state.datenbank[ticker]
+        if obj["status"] == "neu":
+            daten = yahoo_laden(ticker)
+            if daten:
+                for kpi, wert in daten.items():
+                    if not pd.isna(wert):
+                        save_kpi(ticker, kpi, wert, "Yahoo")
+            obj["status"] = "geladen"
+
         fehlend = fehlende_kpis(ticker)
         for kpi in fehlend:
             queue.append((ticker, kpi))
@@ -124,62 +136,78 @@ def baue_abfrage_queue():
 
 def screen_sammeln():
     st.subheader("1. Ticker Liste")
-
-    # TEXTBOX mit allen Ticker
-    ticker_text = st.text_area(
-        "Ticker Symbole, getrennt mit Komma",
-        value=",".join(st.session_state.aktien_liste),
-        height=100
-    )
-
+    ticker_text = st.text_area("Ticker Symbole, getrennt mit Komma", value=",".join(st.session_state.aktien_liste), height=100)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("💾 Liste übernehmen", use_container_width=True):
             neue_liste = [t.strip().upper() for t in ticker_text.split(",") if t.strip()]
-            st.session_state.aktien_liste = list(dict.fromkeys(neue_liste)) # Duplikate raus
-            st.success("Liste übernommen")
-            st.rerun()
-
+            st.session_state.aktien_liste = list(dict.fromkeys(neue_liste))
+            st.success("Liste übernommen"); st.rerun()
     with col2:
         neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
         if st.button("➕ Hinzufügen", use_container_width=True):
             if neuer_ticker:
                 neuer_ticker = neuer_ticker.upper().strip()
-                if neuer_ticker in st.session_state.aktien_liste:
-                    st.warning(f"{neuer_ticker} ist bereits in der Liste")
+                if neuer_ticker in st.session_state.aktien_liste: st.warning(f"{neuer_ticker} ist bereits in der Liste")
                 else:
                     with st.spinner(f"Prüfe {neuer_ticker}..."):
-                        if yahoo_laden(neuer_ticker) is None:
-                            st.error(f"{neuer_ticker} nicht gefunden")
-                        else:
-                            st.session_state.aktien_liste.append(neuer_ticker)
-                            st.success(f"{neuer_ticker} hinzugefügt")
-                            st.rerun()
+                        if yahoo_laden(neuer_ticker) is None: st.error(f"{neuer_ticker} nicht gefunden")
+                        else: st.session_state.aktien_liste.append(neuer_ticker); st.success(f"{neuer_ticker} hinzugefügt"); st.rerun()
 
     st.divider()
     st.write(f"**{len(st.session_state.aktien_liste)} Ticker in Liste:**")
     st.write(", ".join(st.session_state.aktien_liste))
-
     st.divider()
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
-        with st.spinner("Lade Yahoo Daten und baue Abfrageliste..."):
+        with st.spinner("Lade Yahoo Daten..."):
             baue_abfrage_queue()
-        st.session_state.modus = "abfrage"
+        st.session_state.modus = "uebersicht"
         st.rerun()
 
 # ============================================
-# SCREEN 2: ABFRAGE
+# SCREEN 2: ÜBERSICHT
+# ============================================
+
+def screen_uebersicht():
+    st.subheader("2. Daten-Übersicht")
+
+    cols = st.columns(2)
+    with cols[0]:
+        st.write("### Gefundene Daten")
+        for ticker in st.session_state.aktien_liste:
+            voll = 8 - len(fehlende_kpis(ticker))
+            st.write(f"{ticker:<8} {voll}/8 KPIs")
+
+    with cols[1]:
+        st.write("### Fehlende Eingaben")
+        if len(st.session_state.abfrage_queue) == 0:
+            st.success("Alle Daten vorhanden")
+        else:
+            for ticker, kpi in st.session_state.abfrage_queue:
+                st.write(f"{ticker} {KPI_LABELS[kpi]}")
+
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ Jetzt Eingabe starten", type="primary", use_container_width=True):
+            if len(st.session_state.abfrage_queue) > 0:
+                st.session_state.modus = "abfrage"
+            else:
+                st.session_state.modus = "ranking"
+            st.rerun()
+    with col2:
+        if st.button("⬅️ Zurück zur Liste", use_container_width=True):
+            st.session_state.modus = "sammeln"; st.rerun()
+
+# ============================================
+# SCREEN 3: ABFRAGE - MIT SESSION STATE FIX
 # ============================================
 
 def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0:
-        st.success("Alle Daten vollständig")
-        st.session_state.modus = "ranking"
-        st.rerun()
-        return
+        st.session_state.modus = "ranking"; st.rerun(); return
 
     ticker, kpi = st.session_state.abfrage_queue[0]
-
     st.progress(1 - len(st.session_state.abfrage_queue)/max(1, len(st.session_state.abfrage_queue)+1))
     st.error(f"❗ {ticker} - {NAMEN.get(ticker,ticker)}")
     st.warning(f"Fehlender Wert: {KPI_LABELS[kpi]}")
@@ -187,25 +215,33 @@ def screen_abfrage():
     st.divider()
     st.write(f"### {KPI_LABELS[kpi]}"); st.info(KPI_HINTS[kpi])
 
+    # FIX: Key sauber initialisieren
+    input_key = f"input_{ticker}_{kpi}"
+    if input_key not in st.session_state:
+        st.session_state[input_key] = ""
+
     if (ticker,kpi) in st.session_state.web_vorschlaege:
         vorschlag = st.session_state.web_vorschlaege[(ticker,kpi)]
         st.success(f"Vorschlag: {vorschlag}")
         if st.button("Übernehmen", key=f"apply_web_{ticker}_{kpi}"):
             save_kpi(ticker, kpi, vorschlag, "Internet"); del st.session_state.web_vorschlaege[(ticker,kpi)]
+            del st.session_state[input_key] # Key löschen
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
-    eingabe = st.text_input("Wert eingeben", key=f"input_{ticker}_{kpi}", placeholder="z.B. 0.08", value="")
+    eingabe = st.text_input("Wert eingeben", key=input_key, placeholder="z.B. 0.08")
+
     col1,col2,col3 = st.columns(3)
     with col1:
         if st.button("💾 Speichern", key=f"save_{ticker}_{kpi}"):
-            raw = st.session_state.get(f"input_{ticker}_{kpi}", "")
-            try:
-                wert = parse_number(raw)
-                if pd.isna(wert): st.error("Bitte gültige Zahl eingeben"); return
-                save_kpi(ticker, kpi, wert, "Manuell")
-                st.session_state.abfrage_queue.pop(0)
-                st.rerun()
-            except: st.error(f"Keine gültige Zahl: {raw}")
+            raw = eingabe
+            wert = parse_number(raw)
+            if pd.isna(wert):
+                st.error(f"Keine gültige Zahl: '{raw}'")
+                return
+            save_kpi(ticker, kpi, wert, "Manuell")
+            del st.session_state[input_key] # Key löschen
+            st.session_state.abfrage_queue.pop(0); st.rerun()
+
     with col2:
         if st.button("🔍 Websuche", key=f"web_{ticker}_{kpi}"):
             with st.spinner("Suche..."):
@@ -214,10 +250,12 @@ def screen_abfrage():
                 else: st.error("Nichts gefunden")
     with col3:
         if st.button("⏭️ Überspringen", key=f"skip_{ticker}_{kpi}"):
+            save_kpi(ticker, kpi, np.nan, "Übersprungen")
+            if input_key in st.session_state: del st.session_state[input_key]
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
 # ============================================
-# SCREEN 3: RANKING
+# SCREEN 4: RANKING
 # ============================================
 
 def screen_ranking():
@@ -225,11 +263,10 @@ def screen_ranking():
     liste=[]; audit=[]
     for ticker in st.session_state.aktien_liste:
         obj = st.session_state.datenbank[ticker]
-        if len(fehlende_kpis(ticker)) == 0:
-            liste.append(obj["daten"]); audit.append(obj["audit"])
+        liste.append(obj["daten"]); audit.append(obj["audit"])
 
     if len(liste)<2:
-        st.error("Zu wenige vollständige Aktien für Ranking")
+        st.error("Zu wenige Aktien für Ranking")
         if st.button("Zurück"):
             st.session_state.modus = "sammeln"; st.rerun()
         return
@@ -242,7 +279,7 @@ def screen_ranking():
         if not higher_better: rank = 1-rank
         result=pd.Series(50, index=s.index, dtype=float); result.loc[valid.index]=rank*100; return result
     def momentum_score(value):
-        if pd.isna(value): return np.nan
+        if pd.isna(value): return 50.0
         if value <= -0.20: return 0
         elif value <= -0.10: return 33.3
         elif value <= 0.10: return 50.0
@@ -256,7 +293,10 @@ def screen_ranking():
     df["Bewertung_Score"]=(kgv*0.15+peg*0.15+ev*0.05+fcf*0.05)
     growth=percentile_score(df["Umsatz_Wachstum"], True); marge=percentile_score(df["OpMarge"], True); fcfm=percentile_score(df["FCF_Marge"], True)
     df["Gewinnqualitaet_Score"]=(growth*0.4+marge*0.4+fcfm*0.2)
-    df["Gesamtscore"]=(df["AI_Gewinnhebel"]*0.35+df["Bewertung_Score"]*0.40+df["Gewinnqualitaet_Score"]*0.20+5).round(1)
+
+    daten_score = (df[PFLICHT_KPIS].notna().sum(axis=1) / len(PFLICHT_KPIS)) * 5
+
+    df["Gesamtscore"]=(df["AI_Gewinnhebel"]*0.35+df["Bewertung_Score"]*0.40+df["Gewinnqualitaet_Score"]*0.20 + daten_score).round(1)
     df=df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     ratings=["STRONG BUY" if i < len(df)*0.2 else "BUY" if i < len(df)*0.5 else "HOLD" for i in range(len(df))]
     df["Rating"]=ratings
@@ -264,9 +304,18 @@ def screen_ranking():
 
     st.subheader("Ranking")
     st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
+
+    with st.expander("KPI Audit Trail"):
+        audit_df = pd.DataFrame([
+            {"Ticker":t, "KPI":k, **v}
+            for t,obj in st.session_state.datenbank.items()
+            for k,v in obj["audit"].items()
+        ])
+        st.dataframe(audit_df, use_container_width=True, hide_index=True)
+
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.7")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.7_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.8.1")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.8.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
     if st.button("⬅️ Zurück zur Liste"):
         st.session_state.modus = "sammeln"; st.rerun()
 
@@ -278,6 +327,8 @@ st.title(f"AI Infrastructure Return Ranking {VERSION}")
 
 if st.session_state.modus == "sammeln":
     screen_sammeln()
+elif st.session_state.modus == "uebersicht":
+    screen_uebersicht()
 elif st.session_state.modus == "abfrage":
     screen_abfrage()
 elif st.session_state.modus == "ranking":
