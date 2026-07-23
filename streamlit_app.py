@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v13.3
-# HOTFIX: dtype Fehler in percentile_score
+# AI Infrastructure Return Ranking v13.4
+# Aenderung: Ticker Liste anzeigen + Duplikat Fehler + Not Found Fehler
 # ============================================
 
 import streamlit as st
@@ -13,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v13.3", layout="wide")
-VERSION = "v13.3"
+st.set_page_config(page_title="AI Return Ranking v13.4", layout="wide")
+VERSION = "v13.4"
 
 st.warning("Axiom: KI-Capex-Zyklus intakt bis Q4 2027. Frage: Wer hat Gewinnhebel + ist nicht ueberteuert?")
 
@@ -45,15 +45,12 @@ def safe_get(d, key, default=np.nan):
     except: return default
 
 def percentile_score(series, higher_better=True):
-    # FIX: dtype=float erzwingen damit keine TypeError
     s = pd.to_numeric(series, errors='coerce')
     valid = s.dropna()
     if len(valid) < 2: return pd.Series(50.0, index=s.index, dtype=float)
-
     rank = valid.rank(pct=True)
     if not higher_better: rank = 1 - rank
-
-    result = pd.Series(50.0, index=s.index, dtype=float) # <- HIER WAR DER FEHLER
+    result = pd.Series(50.0, index=s.index, dtype=float)
     result[valid.index] = rank * 100.0
     return result
 
@@ -138,19 +135,26 @@ st.title(f"AI Infrastructure Return Ranking {VERSION}")
 st.caption("Gewichtung: Gewinnhebel 35% | Bewertung 40% | Gewinnqualitaet 20% | Daten 5%")
 
 with st.sidebar:
-    st.header("AI Gewinnhebel v13.3")
+    st.header("AI Gewinnhebel v13.4")
     st.table(pd.DataFrame.from_dict(AI_GEWINNHEBEL, orient='index', columns=['Hebel']).sort_values('Hebel', ascending=False))
 
 col1,col2 = st.columns([1,2])
 with col1:
-    st.info("v13.3: dtype Fix in percentile_score")
+    # AENDERUNG 1: Info Text entfernt, Ticker Liste angezeigt
+    st.write("**Inkludierte Ticker:**")
+    st.code(", ".join(st.session_state.aktien_liste))
 with col2:
     such_ticker = st.text_input("Ticker hinzufuegen")
     c1,c2 = st.columns(2)
     with c1:
-        if st.button("Hinzufuegen") and such_ticker.upper():
-            if such_ticker.upper() not in st.session_state.aktien_liste: st.session_state.aktien_liste.append(such_ticker.upper())
-            st.rerun()
+        if st.button("Hinzufuegen") and such_ticker:
+            ticker_up = such_ticker.upper()
+            # AENDERUNG 2: Duplikat Check
+            if ticker_up in st.session_state.aktien_liste:
+                st.error(f"Fehler: {ticker_up} ist bereits in der Liste")
+            else:
+                st.session_state.aktien_liste.append(ticker_up)
+                st.rerun()
     with c2:
         if st.button("Liste leeren"): st.session_state.aktien_liste=[]; st.rerun()
 
@@ -160,21 +164,20 @@ if st.button("Ranking starten", type="primary"):
         status.text(f"Lade {symbol} {i+1}/{len(st.session_state.aktien_liste)}")
         data,error = get_yahoo_data(symbol)
         if data: daten.append(data)
-        else: fehler.append(error)
+        else:
+            # AENDERUNG 3: Fehler direkt anzeigen wenn Ticker nicht gefunden
+            fehler.append(error)
+            st.error(f"Ticker nicht gefunden: {symbol}")
         progress.progress((i+1)/len(st.session_state.aktien_liste))
         time.sleep(1.5)
 
-    if fehler:
-        with st.expander(f"Fehler ({len(fehler)})"):
-            for f in fehler: st.write(f)
-
-    if len(daten)<2: st.error("Zu wenige Daten"); st.stop()
+    if len(daten)<2: st.error("Zu wenige gueltige Daten zum Ranking"); st.stop()
 
     df=pd.DataFrame(daten)
     for c in df.columns:
         if c not in ["Ticker", "Name"]: df[c]=pd.to_numeric(df[c], errors="coerce")
 
-    df = berechne_scores(df) # <- Hier ist es gecrasht
+    df = berechne_scores(df)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
     df["Umsatz_Wachstum"] = (df["Umsatz_Wachstum"]*100).round(1)
     df["OpMarge"] = (df["OpMarge"]*100).round(1)
@@ -190,5 +193,5 @@ if st.button("Ranking starten", type="primary"):
         st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","PEG","EV_EBITDA","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.3")
-        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.4")
+        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
