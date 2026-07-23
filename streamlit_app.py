@@ -1,6 +1,7 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v9.1
+# Halbleiter & KI Aktien Ranking v9.11
 # KISS: 9 KPIs, Gew. Datenqualität, Auto-Median
+# FIX: Nur Pause gegen Rate Limit eingefügt
 # ============================================
 
 import streamlit as st
@@ -13,8 +14,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v9.1 KISS", layout="wide")
-VERSION = "v9.1"
+st.set_page_config(page_title="Halbleiter Ranking v9.11", layout="wide")
+VERSION = "v9.11"
 
 if 'aktien_liste' not in st.session_state:
     st.session_state.aktien_liste = [
@@ -51,11 +52,9 @@ STRAT_BEDEUTUNG = {
     "MU": 82, "SNDK": 78, "AMD": 75, "285A.T": 75
 }
 
-# FIX 6: Leere Dicts. Werden aus aktueller Liste berechnet
 SEKTOR_MEDIANS = {}
 
 TOTAL_KPIS = 9
-# FIX 2: Gewichtung der Datenqualität
 KPI_GEWICHTE_FEHLER = {
     "KGV": 3.0, "EV/EBITDA": 3.0, "Umsatztrend": 2.0, "Gewinntrend": 2.0,
     "GM": 1.5, "OM": 1.5, "FCF": 1.5, "AI": 1.0, "STRAT": 0.5
@@ -63,7 +62,6 @@ KPI_GEWICHTE_FEHLER = {
 MAX_FEHLER_PUNKTE = sum(KPI_GEWICHTE_FEHLER.values())
 
 def get_gewichte_sektor(horizont, sektor):
-    # FIX 8: Deine vorgeschlagenen Gewichte
     if horizont == 6:
         base = {"Bewertung":0.25, "Wachstum":0.30, "Qualität":0.30, "Strategie":0.15}
     elif horizont == 12:
@@ -74,7 +72,7 @@ def get_gewichte_sektor(horizont, sektor):
     return {
         "Forward KGV": base["Bewertung"] * 0.5,
         "EV/EBITDA": base["Bewertung"] * 0.5,
-        "Umsatztrend": base["Wachstum"] * 0.5, # FIX 4: Neutraler Name
+        "Umsatztrend": base["Wachstum"] * 0.5,
         "Gewinntrend": base["Wachstum"] * 0.5,
         "Bruttomarge": base["Qualität"] * 0.33,
         "Operating Margin": base["Qualität"] * 0.33,
@@ -99,7 +97,6 @@ def get_row_safe(df, possible_keys):
     return pd.Series(dtype=float)
 
 def calc_sektor_medians(df):
-    # FIX 6: Auto-Median aus aktueller Vergleichsgruppe
     medians = {}
     for sektor in df["Sektor"].unique():
         sektor_df = df[df["Sektor"] == sektor]
@@ -115,7 +112,6 @@ def calc_sektor_medians(df):
     return medians
 
 def get_rating(score, fehler_punkte):
-    # FIX 2: Gewichtete Datenqualität
     daten_qualitaet = 1.0 - (fehler_punkte / MAX_FEHLER_PUNKTE)
     if score >= 78 and daten_qualitaet > 0.8: return "🟢 STRONG BUY"
     elif score >= 65: return "🟢 BUY"
@@ -127,7 +123,7 @@ def get_yahoo_data(symbol):
     fehlende_felder = []
     fehler_punkte = 0.0
     try:
-        time.sleep(1.0)
+        time.sleep(1.0) # Basis-Pause aus v9.1 bleibt
         ticker = yf.Ticker(symbol)
         info = ticker.info or {}
         financials = ticker.financials
@@ -143,31 +139,27 @@ def get_yahoo_data(symbol):
         marketcap = safe_get(info, "marketCap")
         if pd.isna(marketcap): return None, f"{symbol}: Keine Marketcap"
 
-        # 1. Forward KGV - FIX 3
         forward_kgv = safe_get(info, "forwardPE")
         if pd.isna(forward_kgv): forward_kgv = safe_get(info, "trailingPE")
         if pd.isna(forward_kgv) or forward_kgv < 0:
-            forward_kgv = np.nan # Nicht 100
+            forward_kgv = np.nan
             fehlende_felder.append("KGV")
             fehler_punkte += KPI_GEWICHTE_FEHLER["KGV"]
 
-        # 2. EV/EBITDA
         ev_ebitda = safe_get(info, "enterpriseToEbitda")
         if pd.isna(ev_ebitda):
             ev_ebitda = np.nan
             fehlende_felder.append("EV/EBITDA")
             fehler_punkte += KPI_GEWICHTE_FEHLER["EV/EBITDA"]
 
-        # 3. Umsatztrend - FIX 4: Konsistent
         rev_series = get_row_safe(financials, ["Total Revenue", "Revenue"])
-        umsatztrend = safe_get(info, "revenueGrowth") # Forward bevorzugt
+        umsatztrend = safe_get(info, "revenueGrowth")
         if pd.isna(umsatztrend) and len(rev_series) >= 2:
             umsatztrend = (rev_series.iloc[0]/rev_series.iloc[-1])**(1/max(1,len(rev_series)-1))-1
         if pd.isna(umsatztrend):
             fehlende_felder.append("Umsatztrend")
             fehler_punkte += KPI_GEWICHTE_FEHLER["Umsatztrend"]
 
-        # 4. Gewinntrend
         eps_series = get_row_safe(financials, ["Diluted EPS", "Diluted EPS (excl. Extra Items)", "Basic EPS"])
         gewinntrend = safe_get(info, "earningsGrowth")
         if pd.isna(gewinntrend) and len(eps_series) >= 2:
@@ -176,19 +168,16 @@ def get_yahoo_data(symbol):
             fehlende_felder.append("Gewinntrend")
             fehler_punkte += KPI_GEWICHTE_FEHLER["Gewinntrend"]
 
-        # 5. Bruttomarge
         gm = safe_get(info, "grossMargins")
         if pd.isna(gm):
             fehlende_felder.append("GM")
             fehler_punkte += KPI_GEWICHTE_FEHLER["GM"]
 
-        # 6. Operating Margin
         om = safe_get(info, "operatingMargins")
         if pd.isna(om):
             fehlende_felder.append("OM")
             fehler_punkte += KPI_GEWICHTE_FEHLER["OM"]
 
-        # 7. FCF-Marge
         fcf_series = get_row_safe(cashflow, ["Free Cash Flow", "FreeCashFlow"])
         fcf = fcf_series.iloc[0] if len(fcf_series) > 0 else np.nan
         revenue = rev_series.iloc[0] if len(rev_series) > 0 else np.nan
@@ -197,16 +186,13 @@ def get_yahoo_data(symbol):
             fehlende_felder.append("FCF")
             fehler_punkte += KPI_GEWICHTE_FEHLER["FCF"]
 
-        # 8. AI Exposure
         ai_exp = AI_EXPOSURE.get(symbol, 50)
-
-        # 9. Strategische Bedeutung
         strat = STRAT_BEDEUTUNG.get(symbol, 50)
 
         data = {
             "Ticker": symbol, "Sektor": sektor,
             "Fehlt": ", ".join(list(set(fehlende_felder))) if fehlende_felder else "vollständig",
-            "Fehler_Punkte": fehler_punkte, # FIX 2
+            "Fehler_Punkte": fehler_punkte,
             "Name": safe_get(info, "shortName", namen.get(symbol, symbol)),
             "Marktkapitalisierung Mrd": round(marketcap / 1e9, 1),
             "Kurs": round(kurs, 2),
@@ -251,10 +237,8 @@ def norm_sektor_aware(df, col, besser="hoch", medians={}):
     return ((clipped - lo) / (hi - lo)) * 100
 
 def berechne_scores(df, horizont):
-    # FIX 6: Medians vor Berechnung aktualisieren
     medians = calc_sektor_medians(df)
 
-    # NaN mit Sektor-Median füllen
     for col, med_key in [("Forward KGV","KGV"), ("EV/EBITDA","EV_EBITDA"), ("Umsatztrend","CAGR_REV"), ("Gewinntrend","CAGR_EPS"), ("Bruttomarge","GM"), ("Operating Margin","OM"), ("FCF-Marge","FCF")]:
         for idx, row in df.iterrows():
             if pd.isna(row[col]):
@@ -278,7 +262,7 @@ def berechne_scores(df, horizont):
     return df
 
 # ========== UI ==========
-st.title(f"Halbleiter & KI Aktien Ranking {VERSION} - KISS")
+st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
 st.caption("9 KPIs | Auto-Sektor-Median | Rating: STRONG BUY ≥78 | BUY ≥65 | HOLD ≥48 | SELL <48")
 
 col1, col2 = st.columns([1,2])
@@ -301,13 +285,25 @@ if st.button("Ranking starten", type="primary"):
 
     for i, symbol in enumerate(st.session_state.aktien_liste):
         status.text(f"Lade {symbol}... {i+1}/{len(st.session_state.aktien_liste)}")
+
         data, fehler = get_yahoo_data(symbol)
-        if data: daten.append(data)
-        else: fehler_log.append(fehler)
+
+        if data:
+            daten.append(data)
+        else:
+            fehler_log.append(fehler)
+
         progress.progress((i+1)/len(st.session_state.aktien_liste))
 
+        # kurze Pause
+        time.sleep(1.5)
+
+        # längere Pause nach jeweils 5 Aktien
+        if (i + 1) % 5 == 0:
+            time.sleep(5)
+
     if fehler_log:
-        with st.expander(f"❌ Übersprungen ({len(fehler_log)})"):
+        with st.expander(f"⚠️ Übersprungen ({len(fehler_log)})"):
             for f in fehler_log: st.write(f"- {f}")
 
     if len(daten) < 2: st.error("Zu wenige Daten"); st.stop()
