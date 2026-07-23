@@ -1,5 +1,5 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v10.6a
+# Halbleiter & KI Aktien Ranking v10.6b
 # 12 Monate Focus | Fundamental Cycle Adjusted
 # ============================================
 
@@ -13,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v10.6a", layout="wide")
-VERSION = "v10.6a"
+st.set_page_config(page_title="Halbleiter Ranking v10.6b", layout="wide")
+VERSION = "v10.6b"
 
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = [
@@ -51,13 +51,13 @@ AI_CAP = 1.35
 AI_INFRA_INFO = """
 ### AI-Infrastruktur Narrativ Faktor
 
-**1.20 AI-Boom**: Hyperscaler Capex ↑↑, HBM/GPU Engpass
-**1.00 Neutral**: Capex stabil, normale Nachfrage
-**0.80 Abkühlung**: Capex ↓, ROI-Fragen
+1.20 AI-Boom: Hyperscaler Capex hoch, HBM GPU Engpass
+1.00 Neutral: Capex stabil, normale Nachfrage
+0.80 Abkuehlung: Capex runter, ROI Fragen
 
 Gewichtung:
 KI Chip 1.25 | Speicher 1.25 | Equipment 1.20 | Foundry 1.20 | Hyperscaler 0.92
-Max-Effekt gecappt bei 1.35
+Max Effekt gecappt bei 1.35
 """
 
 KPIS = ["Forward KGV", "EV/EBITDA", "Umsatztrend", "Gewinntrend", "Bruttomarge", "Operating Margin", "FCF-Marge"]
@@ -68,17 +68,16 @@ KPI_QUALITAETS_GEWICHT = {
 }
 
 def get_gewichte():
-    # 12 Monate Chance-Risiko
     base = {
         "Bewertung": 0.20,
-        "Wachstum": 0.35, # Haupttreiber in 12M
-        "Qualität": 0.30,
-        "AI_Narrativ": 0.15 # Nicht hoeher
+        "Wachstum": 0.35,
+        "Qualitaet": 0.30,
+        "AI_Narrativ": 0.15
     }
     return {
         "Forward KGV": base["Bewertung"] * 0.5, "EV/EBITDA": base["Bewertung"] * 0.5,
         "Umsatztrend": base["Wachstum"] * 0.5, "Gewinntrend": base["Wachstum"] * 0.5,
-        "Bruttomarge": base["Qualität"] * 0.33, "Operating Margin": base["Qualität"] * 0.33, "FCF-Marge": base["Qualität"] * 0.34,
+        "Bruttomarge": base["Qualitaet"] * 0.33, "Operating Margin": base["Qualitaet"] * 0.33, "FCF-Marge": base["Qualitaet"] * 0.34,
         "AI_Infrastruktur": base["AI_Narrativ"]
     }
 
@@ -163,7 +162,6 @@ def get_yahoo_data(symbol, max_retries=2):
             operating_margin = safe_get(info, "operatingMargins")
             if pd.isna(operating_margin): fehlende.append("OM")
 
-            # FCF 3-Jahres-Durchschnitt
             fcf_series = get_row_safe(cashflow, ["Free Cash Flow", "FreeCashFlow"])
             revenue_series_hist = get_row_safe(financials, ["Total Revenue", "Revenue"])
             fcf_margins = []
@@ -213,7 +211,7 @@ def normalize_kpi(df, spalte, medians, typ="log"):
             if typ == "log":
                 ratio = 1 / ratio if spalte in ["Forward KGV", "EV/EBITDA"] and ratio > 0 else ratio
                 rel = np.log(ratio) if ratio > 0 else -1.0
-            else: # linear fuer Wachstum
+            else:
                 rel = ratio - 1.0
         werte.append(rel)
 
@@ -235,7 +233,6 @@ def get_ai_infrastruktur_score(df, global_faktor):
 def berechne_scores(df, global_ai_faktor):
     medians = calc_sector_medians(df)
 
-    # Datenqualitaet VOR Imputation
     df_copy_vor_imputation = df.copy()
     qualitaet_score = 0
     for kpi, gewicht in KPI_QUALITAETS_GEWICHT.items():
@@ -244,7 +241,6 @@ def berechne_scores(df, global_ai_faktor):
     df["Datenqualitaet"] = (qualitaet_score * 100).round(0)
     df["Fehlende Anzahl"] = df_copy_vor_imputation.isna().sum(axis=1)
 
-    # ERST DANN Imputation
     for kpi in KPIS:
         for idx,row in df.iterrows():
             if pd.isna(row[kpi]):
@@ -266,12 +262,10 @@ def berechne_scores(df, global_ai_faktor):
     scores = [sum(norm.loc[idx,kpi]*w for kpi,w in gewichte.items() if kpi in norm.columns) for idx in df.index]
     df["Gesamtscore"] = pd.Series(scores, index=df.index).round(1)
 
-    # Datenqualitaet-Strafe erhoeht: 0.6 + 0.4*DQ
     df["Bereinigter Score"] = (df["Gesamtscore"] * (0.6 + 0.4 * df["Datenqualitaet"]/100)).round(1)
     df["Rating"] = df.apply(lambda x: get_rating(x["Bereinigter Score"], x["Datenqualitaet"], x["Fehlende Anzahl"]), axis=1)
     return df
 
-# ========== UI ==========
 st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
 st.caption("12 Monate Focus | Fundamental Cycle Adjusted")
 
@@ -285,8 +279,8 @@ col1,col2 = st.columns([1,2])
 with col1:
     st.info(
         """
-        **Anlagehorizont: 12 Monate**
-        **Review: Quartalsweise**
+        Anlagehorizont: 12 Monate
+        Review: Quartalsweise
 
         Dieses Ranking bewertet das Chance-Risiko-Verhaeltnis
         im aktuellen AI-Infrastrukturzyklus.
@@ -296,9 +290,6 @@ with col1:
         - Margenqualitaet + FCF 30%
         - Bewertung 20%
         - AI-Capex Rueckenwind 15%
-
-        Kein Momentum-Faktor.
-        Keine Trading-Signale.
         """
     )
 with col2:
@@ -311,7 +302,7 @@ with col2:
     with c2:
         if st.button("Liste leeren"): st.session_state.aktien_liste=[]; st.rerun()
 
-st.write(f"**Aktuelle Liste:** {', '.join(st.session_state.aktien_liste)}")
+st.write(f"Aktuelle Liste: {', '.join(st.session_state.aktien_liste)}")
 
 if st.button("Ranking starten", type="primary"):
     progress = st.progress(0); daten=[]; fehler=[]; status = st.empty()
@@ -354,5 +345,5 @@ if st.button("Ranking starten", type="primary"):
     with tab2: st.dataframe(df, use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v10.6a")
-        st.download_button("Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.6a_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v10.6b")
+        st.download_button("Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.6b_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
