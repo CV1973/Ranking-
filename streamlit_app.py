@@ -1,7 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v13.2
-# Axiom: KI-Capex-Zyklus intakt bis Q4 2027
-# Aenderungen: Percentile Bewertung + PEG 15% + Ranking Rating
+# AI Infrastructure Return Ranking v13.3
+# HOTFIX: dtype Fehler in percentile_score
 # ============================================
 
 import streamlit as st
@@ -14,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v13.2", layout="wide")
-VERSION = "v13.2"
+st.set_page_config(page_title="AI Return Ranking v13.3", layout="wide")
+VERSION = "v13.3"
 
 st.warning("Axiom: KI-Capex-Zyklus intakt bis Q4 2027. Frage: Wer hat Gewinnhebel + ist nicht ueberteuert?")
 
@@ -31,27 +30,12 @@ NAMEN = {
     "285A.T": "Kioxia", "SNDK": "SanDisk", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-# 1. AI GEWINNHEBEL 35% - angepasst nach deiner Tabelle
 AI_GEWINNHEBEL = {
-    "000660.KS": 100, # SK Hynix HBM-Marktführer
-    "MU": 100, # maximaler EPS-Hebel HBM + DRAM
-    "005930.KS": 95, # extrem billig + HBM + Memory + Foundry
-
-    "SNDK": 90, # AI-Storage unterschätzt
-    "AVGO": 90, # ASIC + Networking
-    "TSM": 90, # zentraler Engpass
-    "ASML": 90, # struktureller Monopol
-
-    "NVDA": 85, # hervorragend aber viel eingepreist
-    "AMD": 80,
-    "285A.T": 80, # Kioxia AI Storage
-    "AMAT": 75,
-    "LRCX": 75,
-    "KLAC": 75,
-
-    "MSFT": 60,
-    "GOOGL": 60,
-    "AMZN": 60
+    "000660.KS": 100, "MU": 100, "005930.KS": 95,
+    "SNDK": 90, "AVGO": 90, "TSM": 90, "ASML": 90,
+    "NVDA": 85, "AMD": 80, "285A.T": 80,
+    "AMAT": 75, "LRCX": 75, "KLAC": 75,
+    "MSFT": 60, "GOOGL": 60, "AMZN": 60
 }
 
 def safe_get(d, key, default=np.nan):
@@ -61,16 +45,16 @@ def safe_get(d, key, default=np.nan):
     except: return default
 
 def percentile_score(series, higher_better=True):
-    # FIX 2: Percentile statt Z-Score. Robuster gegen Ausreißer
-    s = series.copy()
+    # FIX: dtype=float erzwingen damit keine TypeError
+    s = pd.to_numeric(series, errors='coerce')
     valid = s.dropna()
-    if len(valid) < 2: return pd.Series(50, index=s.index)
+    if len(valid) < 2: return pd.Series(50.0, index=s.index, dtype=float)
 
-    rank = valid.rank(pct=True) # 0 bis 1
-    if not higher_better: rank = 1 - rank # niedrig ist gut
+    rank = valid.rank(pct=True)
+    if not higher_better: rank = 1 - rank
 
-    result = pd.Series(50, index=s.index)
-    result[valid.index] = rank * 100
+    result = pd.Series(50.0, index=s.index, dtype=float) # <- HIER WAR DER FEHLER
+    result[valid.index] = rank * 100.0
     return result
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -85,14 +69,12 @@ def get_yahoo_data(symbol, max_retries=2):
                 if attempt < max_retries - 1: time.sleep(10)
                 continue
 
-            # 2. BEWERTUNG 40%
             forward_kgv = safe_get(info, "forwardPE")
             if pd.isna(forward_kgv) or forward_kgv <= 0: forward_kgv = safe_get(info, "trailingPE")
             peg = safe_get(info, "pegRatio")
             ev_ebitda = safe_get(info, "enterpriseToEbitda")
             fcf_yield = safe_get(info, "freeCashflow") / safe_get(info, "marketCap") if safe_get(info, "marketCap") else np.nan
 
-            # 3. GEWINNQUALITAET 20% - FIX 4: Kein EPS Wachstum mehr
             umsatz_wachstum = safe_get(info, "revenueGrowth")
             op_marge = safe_get(info, "operatingMargins")
             fcf_marge = safe_get(info, "freeCashflow") / safe_get(info, "totalRevenue") if safe_get(info, "totalRevenue") else np.nan
@@ -113,32 +95,27 @@ def get_yahoo_data(symbol, max_retries=2):
     return None, f"{symbol}: Rate Limit"
 
 def berechne_scores(df):
-    # 1. AI GEWINNHEBEL 35%
     df["AI_Gewinnhebel"] = df["Ticker"].map(AI_GEWINNHEBEL).fillna(50)
 
-    # 2. BEWERTUNG 40% - FIX 2 + 3: Percentile + Neue Gewichte
-    kgv_score = percentile_score(df["Forward_KGV"], higher_better=False) # 15%
-    peg_score = percentile_score(df["PEG"], higher_better=False) # 15%
-    ev_score = percentile_score(df["EV_EBITDA"], higher_better=False) # 5%
-    fcf_score = percentile_score(df["FCF_Yield"], higher_better=True) # 5%
+    kgv_score = percentile_score(df["Forward_KGV"], higher_better=False)
+    peg_score = percentile_score(df["PEG"], higher_better=False)
+    ev_score = percentile_score(df["EV_EBITDA"], higher_better=False)
+    fcf_score = percentile_score(df["FCF_Yield"], higher_better=True)
 
     df["Bewertung_Score"] = (
         kgv_score*0.15 + peg_score*0.15 + ev_score*0.05 + fcf_score*0.05
     ).round(1)
 
-    # 3. GEWINNQUALITAET 20% - FIX 4: Umsatz + Marge + FCF
-    umsatz_score = percentile_score(df["Umsatz_Wachstum"], higher_better=True) # 40%
-    marge_score = percentile_score(df["OpMarge"], higher_better=True) # 40%
-    fcfm_score = percentile_score(df["FCF_Marge"], higher_better=True) # 20%
+    umsatz_score = percentile_score(df["Umsatz_Wachstum"], higher_better=True)
+    marge_score = percentile_score(df["OpMarge"], higher_better=True)
+    fcfm_score = percentile_score(df["FCF_Marge"], higher_better=True)
 
     df["Gewinnqualitaet_Score"] = (
         umsatz_score*0.40 + marge_score*0.40 + fcfm_score*0.20
     ).round(1)
 
-    # 4. DATENQUALITAET 5%
     df["Daten_Score"] = (100 - df["Datenluecken"] * 25).clip(0,100)
 
-    # GESAMT
     df["Gesamtscore"] = (
         df["AI_Gewinnhebel"]*0.35 +
         df["Bewertung_Score"]*0.40 +
@@ -146,7 +123,6 @@ def berechne_scores(df):
         df["Daten_Score"]*0.05
     ).round(1)
 
-    # FIX 7: RANKING-BASIERTES RATING statt absoluter Schwellen
     df = df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     n = len(df)
     def get_ranking_rating(idx):
@@ -162,25 +138,12 @@ st.title(f"AI Infrastructure Return Ranking {VERSION}")
 st.caption("Gewichtung: Gewinnhebel 35% | Bewertung 40% | Gewinnqualitaet 20% | Daten 5%")
 
 with st.sidebar:
-    st.header("AI Gewinnhebel v13.2")
+    st.header("AI Gewinnhebel v13.3")
     st.table(pd.DataFrame.from_dict(AI_GEWINNHEBEL, orient='index', columns=['Hebel']).sort_values('Hebel', ascending=False))
-    st.divider()
-    st.write("**Bewertung 40%:** KGV 15% | PEG 15% | EV 5% | FCF 5%")
-    st.write("**Qualitaet 20%:** Umsatz 8% | Marge 8% | FCF 4%")
-    st.write("**Rating:** Top 20% STRONG BUY | 20-50% BUY")
 
 col1,col2 = st.columns([1,2])
 with col1:
-    st.info(
-        """
-        v13.2 Aenderungen:
-        1. Percentile Bewertung: NVDA 35 KGV vs SAMS 5 KGV
-        2. PEG 15%: Gewinnsprung eingepreist?
-        3. Kein EPS: nur Umsatz + Marge + FCF
-        4. Ranking Rating: relativ, nicht absolut
-        5. TSM/ASML 90: Engpass-Logik
-        """
-    )
+    st.info("v13.3: dtype Fix in percentile_score")
 with col2:
     such_ticker = st.text_input("Ticker hinzufuegen")
     c1,c2 = st.columns(2)
@@ -211,7 +174,7 @@ if st.button("Ranking starten", type="primary"):
     for c in df.columns:
         if c not in ["Ticker", "Name"]: df[c]=pd.to_numeric(df[c], errors="coerce")
 
-    df = berechne_scores(df)
+    df = berechne_scores(df) # <- Hier ist es gecrasht
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
     df["Umsatz_Wachstum"] = (df["Umsatz_Wachstum"]*100).round(1)
     df["OpMarge"] = (df["OpMarge"]*100).round(1)
@@ -227,5 +190,5 @@ if st.button("Ranking starten", type="primary"):
         st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","PEG","EV_EBITDA","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.2")
-        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.2_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.3")
+        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
