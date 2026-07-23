@@ -1,6 +1,11 @@
 # ============================================
-# AI Infrastructure Return Ranking v13.4
-# Aenderung: Ticker Liste anzeigen + Duplikat Fehler + Not Found Fehler
+# AI Infrastructure Return Ranking v13.5
+# Aenderung ggue. v13.4:
+#   1) Transparenz: AI_Gewinnhebel explizit als subjektive,
+#      manuell gepflegte Einstufung gekennzeichnet (kein Marktdaten-Score)
+#   2) Neue Ticker bekommen KEINEN stillen Default-Wert (50) mehr.
+#      Anwender muss AI_Gewinnhebel per Dropdown selbst setzen,
+#      bevor das Ranking gestartet werden kann.
 # ============================================
 
 import streamlit as st
@@ -13,8 +18,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v13.4", layout="wide")
-VERSION = "v13.4"
+st.set_page_config(page_title="AI Return Ranking v13.5", layout="wide")
+VERSION = "v13.5"
 
 st.warning("Axiom: KI-Capex-Zyklus intakt bis Q4 2027. Frage: Wer hat Gewinnhebel + ist nicht ueberteuert?")
 
@@ -30,13 +35,18 @@ NAMEN = {
     "285A.T": "Kioxia", "SNDK": "SanDisk", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-AI_GEWINNHEBEL = {
+# Startwerte / Seed - werden in session_state kopiert und sind dort editierbar.
+# Diese Konstante selbst ist NICHT mehr die "Quelle der Wahrheit" zur Laufzeit.
+AI_GEWINNHEBEL_SEED = {
     "000660.KS": 100, "MU": 100, "005930.KS": 95,
     "SNDK": 90, "AVGO": 90, "TSM": 90, "ASML": 90,
     "NVDA": 85, "AMD": 80, "285A.T": 80,
     "AMAT": 75, "LRCX": 75, "KLAC": 75,
     "MSFT": 60, "GOOGL": 60, "AMZN": 60
 }
+
+if "ai_gewinnhebel" not in st.session_state:
+    st.session_state.ai_gewinnhebel = dict(AI_GEWINNHEBEL_SEED)
 
 def safe_get(d, key, default=np.nan):
     try:
@@ -92,7 +102,15 @@ def get_yahoo_data(symbol, max_retries=2):
     return None, f"{symbol}: Rate Limit"
 
 def berechne_scores(df):
-    df["AI_Gewinnhebel"] = df["Ticker"].map(AI_GEWINNHEBEL).fillna(50)
+    # AENDERUNG v13.5: kein .fillna(50) mehr. Der Aufrufer (UI) garantiert,
+    # dass jeder Ticker in st.session_state.ai_gewinnhebel vorhanden ist,
+    # bevor diese Funktion ueberhaupt erreicht wird. Falls doch ein Wert
+    # fehlt, soll das sichtbar auffliegen statt still auf 50 zu fallen.
+    df["AI_Gewinnhebel"] = df["Ticker"].map(st.session_state.ai_gewinnhebel)
+    if df["AI_Gewinnhebel"].isna().any():
+        fehlend = df.loc[df["AI_Gewinnhebel"].isna(), "Ticker"].tolist()
+        st.error(f"Interner Fehler: Kein AI_Gewinnhebel fuer {fehlend} gesetzt. Ranking abgebrochen.")
+        st.stop()
 
     kgv_score = percentile_score(df["Forward_KGV"], higher_better=False)
     peg_score = percentile_score(df["PEG"], higher_better=False)
@@ -134,13 +152,23 @@ def berechne_scores(df):
 st.title(f"AI Infrastructure Return Ranking {VERSION}")
 st.caption("Gewichtung: Gewinnhebel 35% | Bewertung 40% | Gewinnqualitaet 20% | Daten 5%")
 
+# AENDERUNG v13.5: Transparenz-Disclaimer
+st.info(
+    "⚠️ **AI_Gewinnhebel (35% Gewicht) ist eine manuell gepflegte, subjektive Einstufung – "
+    "keine aus Marktdaten berechnete Kennzahl.** Alle anderen Faktoren (Bewertung, "
+    "Gewinnqualitaet, Daten) sind datengetrieben aus Yahoo Finance."
+)
+
 with st.sidebar:
-    st.header("AI Gewinnhebel v13.4")
-    st.table(pd.DataFrame.from_dict(AI_GEWINNHEBEL, orient='index', columns=['Hebel']).sort_values('Hebel', ascending=False))
+    st.header("AI Gewinnhebel")
+    st.caption("⚠️ Subjektiv, nicht datenbasiert – siehe Disclaimer oben.")
+    hebel_df = pd.DataFrame.from_dict(
+        st.session_state.ai_gewinnhebel, orient='index', columns=['Hebel']
+    ).sort_values('Hebel', ascending=False)
+    st.table(hebel_df)
 
 col1,col2 = st.columns([1,2])
 with col1:
-    # AENDERUNG 1: Info Text entfernt, Ticker Liste angezeigt
     st.write("**Inkludierte Ticker:**")
     st.code(", ".join(st.session_state.aktien_liste))
 with col2:
@@ -149,7 +177,6 @@ with col2:
     with c1:
         if st.button("Hinzufuegen") and such_ticker:
             ticker_up = such_ticker.upper()
-            # AENDERUNG 2: Duplikat Check
             if ticker_up in st.session_state.aktien_liste:
                 st.error(f"Fehler: {ticker_up} ist bereits in der Liste")
             else:
@@ -158,14 +185,41 @@ with col2:
     with c2:
         if st.button("Liste leeren"): st.session_state.aktien_liste=[]; st.rerun()
 
-if st.button("Ranking starten", type="primary"):
+# AENDERUNG v13.5: Pflicht-Zuweisung AI_Gewinnhebel fuer neue/unbekannte Ticker
+fehlende_hebel = [t for t in st.session_state.aktien_liste if t not in st.session_state.ai_gewinnhebel]
+
+if fehlende_hebel:
+    st.warning(
+        f"⚠️ {len(fehlende_hebel)} Ticker ohne AI-Gewinnhebel-Einstufung: "
+        f"{', '.join(fehlende_hebel)}. Bitte jeweils zuweisen, bevor das Ranking "
+        f"gestartet werden kann."
+    )
+    for t in fehlende_hebel:
+        c1, c2, c3 = st.columns([2,3,1])
+        with c1:
+            st.write(f"**{NAMEN.get(t, t)}** ({t})")
+        with c2:
+            wert = st.selectbox(
+                f"AI-Gewinnhebel fuer {t}",
+                options=list(range(0,101,5)),
+                index=10,  # zeigt 50 als Vorauswahl an, wird aber NICHT automatisch uebernommen
+                key=f"hebel_select_{t}",
+                label_visibility="collapsed"
+            )
+        with c3:
+            if st.button("Setzen", key=f"hebel_confirm_{t}"):
+                st.session_state.ai_gewinnhebel[t] = wert
+                st.rerun()
+
+ranking_gesperrt = len(fehlende_hebel) > 0
+
+if st.button("Ranking starten", type="primary", disabled=ranking_gesperrt):
     progress = st.progress(0); daten=[]; fehler=[]; status = st.empty()
     for i,symbol in enumerate(st.session_state.aktien_liste):
         status.text(f"Lade {symbol} {i+1}/{len(st.session_state.aktien_liste)}")
         data,error = get_yahoo_data(symbol)
         if data: daten.append(data)
         else:
-            # AENDERUNG 3: Fehler direkt anzeigen wenn Ticker nicht gefunden
             fehler.append(error)
             st.error(f"Ticker nicht gefunden: {symbol}")
         progress.progress((i+1)/len(st.session_state.aktien_liste))
@@ -188,10 +242,14 @@ if st.button("Ranking starten", type="primary"):
 
     tab1,tab2,tab3 = st.tabs(["Transparenz", "Ranking", "Export"])
     with tab1:
-        st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score","Daten_Score","Datenluecken"]], use_container_width=True, hide_index=True)
+        anzeige_df1 = df.rename(columns={"AI_Gewinnhebel": "AI_Gewinnhebel (subjektiv)"})
+        st.dataframe(
+            anzeige_df1[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel (subjektiv)","Bewertung_Score","Gewinnqualitaet_Score","Daten_Score","Datenluecken"]],
+            use_container_width=True, hide_index=True
+        )
     with tab2:
         st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","PEG","EV_EBITDA","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.4")
-        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.5")
+        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.5_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
