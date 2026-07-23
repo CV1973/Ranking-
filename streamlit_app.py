@@ -1,11 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v13.5
-# Aenderung ggue. v13.4:
-#   1) Transparenz: AI_Gewinnhebel explizit als subjektive,
-#      manuell gepflegte Einstufung gekennzeichnet (kein Marktdaten-Score)
-#   2) Neue Ticker bekommen KEINEN stillen Default-Wert (50) mehr.
-#      Anwender muss AI_Gewinnhebel per Dropdown selbst setzen,
-#      bevor das Ranking gestartet werden kann.
+# AI Infrastructure Return Ranking v13.6
+# Aenderung ggue. v13.5: KGV Quelle wird mitgeloggt
 # ============================================
 
 import streamlit as st
@@ -18,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v13.5", layout="wide")
-VERSION = "v13.5"
+st.set_page_config(page_title="AI Return Ranking v13.6", layout="wide")
+VERSION = "v13.6"
 
 st.warning("Axiom: KI-Capex-Zyklus intakt bis Q4 2027. Frage: Wer hat Gewinnhebel + ist nicht ueberteuert?")
 
@@ -35,8 +30,6 @@ NAMEN = {
     "285A.T": "Kioxia", "SNDK": "SanDisk", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-# Startwerte / Seed - werden in session_state kopiert und sind dort editierbar.
-# Diese Konstante selbst ist NICHT mehr die "Quelle der Wahrheit" zur Laufzeit.
 AI_GEWINNHEBEL_SEED = {
     "000660.KS": 100, "MU": 100, "005930.KS": 95,
     "SNDK": 90, "AVGO": 90, "TSM": 90, "ASML": 90,
@@ -76,8 +69,13 @@ def get_yahoo_data(symbol, max_retries=2):
                 if attempt < max_retries - 1: time.sleep(10)
                 continue
 
+            # NUR DIESER BLOCK GEAENDERT
             forward_kgv = safe_get(info, "forwardPE")
-            if pd.isna(forward_kgv) or forward_kgv <= 0: forward_kgv = safe_get(info, "trailingPE")
+            kgv_quelle = "forward"
+            if pd.isna(forward_kgv) or forward_kgv <= 0:
+                forward_kgv = safe_get(info, "trailingPE")
+                kgv_quelle = "trailing (Fallback)"
+
             peg = safe_get(info, "pegRatio")
             ev_ebitda = safe_get(info, "enterpriseToEbitda")
             fcf_yield = safe_get(info, "freeCashflow") / safe_get(info, "marketCap") if safe_get(info, "marketCap") else np.nan
@@ -91,7 +89,7 @@ def get_yahoo_data(symbol, max_retries=2):
 
             daten = {
                 "Ticker": symbol, "Name": NAMEN.get(symbol, symbol),
-                "Forward_KGV": forward_kgv, "PEG": peg, "EV_EBITDA": ev_ebitda, "FCF_Yield": fcf_yield,
+                "Forward_KGV": forward_kgv, "KGV_Quelle": kgv_quelle, "PEG": peg, "EV_EBITDA": ev_ebitda, "FCF_Yield": fcf_yield,
                 "Umsatz_Wachstum": umsatz_wachstum, "OpMarge": op_marge, "FCF_Marge": fcf_marge,
                 "Datenluecken": fehlende
             }
@@ -102,10 +100,6 @@ def get_yahoo_data(symbol, max_retries=2):
     return None, f"{symbol}: Rate Limit"
 
 def berechne_scores(df):
-    # AENDERUNG v13.5: kein .fillna(50) mehr. Der Aufrufer (UI) garantiert,
-    # dass jeder Ticker in st.session_state.ai_gewinnhebel vorhanden ist,
-    # bevor diese Funktion ueberhaupt erreicht wird. Falls doch ein Wert
-    # fehlt, soll das sichtbar auffliegen statt still auf 50 zu fallen.
     df["AI_Gewinnhebel"] = df["Ticker"].map(st.session_state.ai_gewinnhebel)
     if df["AI_Gewinnhebel"].isna().any():
         fehlend = df.loc[df["AI_Gewinnhebel"].isna(), "Ticker"].tolist()
@@ -152,7 +146,6 @@ def berechne_scores(df):
 st.title(f"AI Infrastructure Return Ranking {VERSION}")
 st.caption("Gewichtung: Gewinnhebel 35% | Bewertung 40% | Gewinnqualitaet 20% | Daten 5%")
 
-# AENDERUNG v13.5: Transparenz-Disclaimer
 st.info(
     "⚠️ **AI_Gewinnhebel (35% Gewicht) ist eine manuell gepflegte, subjektive Einstufung – "
     "keine aus Marktdaten berechnete Kennzahl.** Alle anderen Faktoren (Bewertung, "
@@ -185,7 +178,6 @@ with col2:
     with c2:
         if st.button("Liste leeren"): st.session_state.aktien_liste=[]; st.rerun()
 
-# AENDERUNG v13.5: Pflicht-Zuweisung AI_Gewinnhebel fuer neue/unbekannte Ticker
 fehlende_hebel = [t for t in st.session_state.aktien_liste if t not in st.session_state.ai_gewinnhebel]
 
 if fehlende_hebel:
@@ -202,7 +194,7 @@ if fehlende_hebel:
             wert = st.selectbox(
                 f"AI-Gewinnhebel fuer {t}",
                 options=list(range(0,101,5)),
-                index=10,  # zeigt 50 als Vorauswahl an, wird aber NICHT automatisch uebernommen
+                index=10,
                 key=f"hebel_select_{t}",
                 label_visibility="collapsed"
             )
@@ -229,7 +221,7 @@ if st.button("Ranking starten", type="primary", disabled=ranking_gesperrt):
 
     df=pd.DataFrame(daten)
     for c in df.columns:
-        if c not in ["Ticker", "Name"]: df[c]=pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name", "KGV_Quelle"]: df[c]=pd.to_numeric(df[c], errors="coerce")
 
     df = berechne_scores(df)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
@@ -244,12 +236,12 @@ if st.button("Ranking starten", type="primary", disabled=ranking_gesperrt):
     with tab1:
         anzeige_df1 = df.rename(columns={"AI_Gewinnhebel": "AI_Gewinnhebel (subjektiv)"})
         st.dataframe(
-            anzeige_df1[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel (subjektiv)","Bewertung_Score","Gewinnqualitaet_Score","Daten_Score","Datenluecken"]],
+            anzeige_df1[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel (subjektiv)","Bewertung_Score","Gewinnqualitaet_Score","Daten_Score","KGV_Quelle","Datenluecken"]],
             use_container_width=True, hide_index=True
         )
     with tab2:
-        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","PEG","EV_EBITDA","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","KGV_Quelle","PEG","EV_EBITDA","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.5")
-        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.5_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.6")
+        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.6_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
