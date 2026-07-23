@@ -1,6 +1,7 @@
 # ============================================
-# AI Infrastructure Cycle Ranking v11.0
-# Frage: Wer profitiert am meisten vom AI-Capex bis Jahresende?
+# AI Infrastructure Cycle Ranking v12.0
+# 3 Säulen + 1 Modifikator + 1 Filter
+# Prämisse: KI-Capex-Zyklus intakt bis Q4 2027
 # ============================================
 
 import streamlit as st
@@ -13,8 +14,10 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Cycle Ranking v11.0", layout="wide")
-VERSION = "v11.0"
+st.set_page_config(page_title="AI Cycle Ranking v12.0", layout="wide")
+VERSION = "v12.0"
+
+st.warning("Modell-Annahme: KI-Capex-Zyklus intakt bis Q4 2027. Dieses Ranking ist bedingt auf diese These.")
 
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = [
@@ -29,28 +32,26 @@ NAMEN = {
     "285A.T": "Kioxia", "SNDK": "SanDisk", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-# FAKTOR 1: AI EXPOSURE FIX - 40%
-AI_EXPOSURE_BASE = {
-    "NVDA": 100, "000660.KS": 100, # GPU + HBM Leader
-    "AVGO": 95, "TSM": 95, # ASIC + Foundry
-    "MU": 90, "ASML": 90, # HBM + EUV
-    "005930.KS": 85, "AMD": 85, # Samsung HBM + AMD MI300
-    "AMAT": 80, "LRCX": 80, "KLAC": 80, # Equipment
-    "285A.T": 70, "SNDK": 65, # NAND + AI Storage
-    "MSFT": 60, "GOOGL": 60, "AMZN": 60 # Hyperscaler
+SEKTOR = {
+    "NVDA": "KI_Chip", "AMD": "KI_Chip", "AVGO": "KI_Chip",
+    "ASML": "Equipment", "AMAT": "Equipment", "LRCX": "Equipment", "KLAC": "Equipment",
+    "TSM": "Foundry",
+    "MU": "Speicher", "000660.KS": "Speicher", "285A.T": "Speicher", "005930.KS": "Speicher", "SNDK": "Speicher",
+    "MSFT": "Hyperscaler", "GOOGL": "Hyperscaler", "AMZN": "Hyperscaler"
 }
 
-AI_BONUS_REGIME = {
-    1.20: { # BOOM: Memory + Equipment + Foundry
-        "HBM_DRAM": ["MU", "000660.KS", "005930.KS"],
-        "EQUIPMENT": ["ASML", "AMAT", "LRCX", "KLAC"],
-        "FOUNDRY": ["TSM"]
-    },
-    1.00: { # NORMAL: alle gleich
-    },
-    0.80: { # ABKUEHLUNG: Qualitaet + Monetarisierung
-        "QUALITY": ["NVDA", "AVGO", "MSFT", "GOOGL", "AMZN"]
-    }
+# SAEUlE 2: THESE - Manuelle Felder
+AI_EXPOSURE = {
+    "NVDA": 100, "000660.KS": 100, "AVGO": 95, "TSM": 95, "MU": 90, "ASML": 90,
+    "005930.KS": 85, "AMD": 85, "AMAT": 80, "LRCX": 80, "KLAC": 80,
+    "285A.T": 70, "SNDK": 65, "MSFT": 60, "GOOGL": 60, "AMZN": 60
+}
+
+# Zyklusdaempfung: 100 = kein Boom-Bust, 0 = extrem zyklisch
+ZYKLUSDAEMPFUNG = {
+    "NVDA": 30, "AVGO": 40, "TSM": 50, "ASML": 45, "AMD": 35, "MSFT": 80, "GOOGL": 80, "AMZN": 75,
+    "MU": 85, "000660.KS": 90, "005930.KS": 80, "SNDK": 75, "285A.T": 70, # Memory hat Langfristvertraege
+    "AMAT": 50, "LRCX": 50, "KLAC": 50
 }
 
 def safe_get(d, key, default=np.nan):
@@ -70,37 +71,26 @@ def get_yahoo_data(symbol, max_retries=2):
                 if attempt < max_retries - 1: time.sleep(10)
                 continue
 
-            financials = ticker.financials
-            history = ticker.history(period="5d")
-
-            kurs = safe_get(info, "currentPrice")
-            if pd.isna(kurs) and not history.empty: kurs = history["Close"].iloc[-1]
-            if pd.isna(kurs): return None, f"{symbol}: Kein Kurs"
-
-            marketcap = safe_get(info, "marketCap")
-            if pd.isna(marketcap): return None, f"{symbol}: Keine Marketcap"
-
-            # FAKTOR 2: EARNINGS MOMENTUM 25%
-            eps_wachstum = safe_get(info, "earningsGrowth") # yoy
-            umsatz_wachstum = safe_get(info, "revenueGrowth") # yoy
-            operating_margin = safe_get(info, "operatingMargins")
-
-            # FAKTOR 3: BEWERTUNG 20%
+            # SAEUlE 1: FUNDAMENTAL - nur 3 KPIs
             forward_kgv = safe_get(info, "forwardPE")
-            peg = safe_get(info, "pegRatio")
-            ev_ebitda = safe_get(info, "enterpriseToEbitda")
+            umsatz_wachstum = safe_get(info, "revenueGrowth") # KEIN EPS CAGR mehr
+            op_marge = safe_get(info, "operatingMargins")
 
-            # FAKTOR 4: BILANZ 15%
+            # MODIFIKATOR: ATH Abstand
+            kurs = safe_get(info, "currentPrice")
+            ath = safe_get(info, "fiftyTwoWeekHigh")
+            ath_abstand = (ath - kurs) / ath * 100 if pd.notna(ath) and pd.notna(kurs) and ath > 0 else np.nan
+
+            # FILTER: BILANZ
             total_debt = safe_get(info, "totalDebt")
             cash = safe_get(info, "totalCash")
             ebitda = safe_get(info, "ebitda")
             net_debt_ebitda = (total_debt - cash) / ebitda if pd.notna(total_debt) and pd.notna(cash) and pd.notna(ebitda) and ebitda > 0 else np.nan
 
             daten = {
-                "Ticker": symbol, "Name": NAMEN.get(symbol, symbol), "Kurs": round(kurs,2),
-                "EPS_Wachstum": eps_wachstum, "Umsatz_Wachstum": umsatz_wachstum, "OpMarge": operating_margin,
-                "Forward_KGV": forward_kgv, "PEG": peg, "EV_EBITDA": ev_ebitda,
-                "NetDebt_EBITDA": net_debt_ebitda
+                "Ticker": symbol, "Name": NAMEN.get(symbol, symbol), "Sektor": SEKTOR.get(symbol, "Unbekannt"),
+                "Forward_KGV": forward_kgv, "Umsatz_Wachstum": umsatz_wachstum, "OpMarge": op_marge,
+                "ATH_Abstand_%": ath_abstand, "NetDebt_EBITDA": net_debt_ebitda
             }
             return daten, None
         except Exception as e:
@@ -108,92 +98,104 @@ def get_yahoo_data(symbol, max_retries=2):
             else: return None, f"{symbol}: {str(e)[:80]}"
     return None, f"{symbol}: Rate Limit"
 
-def normalize_0_100(series, higher_better=True):
-    s = series.copy()
-    s = s.fillna(s.median())
-    min_val, max_val = s.min(), s.max()
-    if max_val == min_val: return pd.Series(50, index=s.index)
-    if higher_better:
-        return (s - min_val) / (max_val - min_val) * 100
-    else: # lower better
-        return (max_val - s) / (max_val - min_val) * 100
+def normalize_sektor(df, spalte, higher_better=True):
+    # BUGFIX 2: TSM nicht mit sich selbst vergleichen. Foundry -> Equipment
+    scores = []
+    for idx, row in df.iterrows():
+        sektor = row["Sektor"]
+        if sektor == "Foundry": sektor = "Equipment" # TSM Vergleichsgruppe
 
-def berechne_scores(df, regime):
-    # FAKTOR 1: AI EXPOSURE 40%
-    df["AI_Exposure"] = df["Ticker"].map(AI_EXPOSURE_BASE).fillna(50)
+        sektor_df = df[df["Sektor"]==sektor]
+        if len(sektor_df) < 2: sektor_df = df # Fallback global
 
-    # Regime Bonus
-    if regime == 1.20:
-        for t in AI_BONUS_REGIME[1.20]["HBM_DRAM"] + AI_BONUS_REGIME[1.20]["EQUIPMENT"] + AI_BONUS_REGIME[1.20]["FOUNDRY"]:
-            df.loc[df["Ticker"]==t, "AI_Exposure"] += 10
-    elif regime == 0.80:
-        for t in AI_BONUS_REGIME[0.80]["QUALITY"]:
-            df.loc[df["Ticker"]==t, "AI_Exposure"] += 10
-    df["AI_Exposure"] = df["AI_Exposure"].clip(0, 100)
+        wert = row[spalte]
+        if pd.isna(wert): scores.append(50); continue
 
-    # FAKTOR 2: EARNINGS MOMENTUM 25%
-    eps_score = normalize_0_100(df["EPS_Wachstum"], higher_better=True)
-    umsatz_score = normalize_0_100(df["Umsatz_Wachstum"], higher_better=True)
-    margen_score = normalize_0_100(df["OpMarge"], higher_better=True)
-    df["Earnings_Momentum"] = (eps_score*0.5 + umsatz_score*0.3 + margen_score*0.2).round(1)
+        median = sektor_df[spalte].median()
+        if pd.isna(median) or median == 0: scores.append(50); continue
 
-    # FAKTOR 3: BEWERTUNG 20% = Wachstum / Bewertung
-    # Idee: Niedriges KGV + hohes Wachstum = gut. Hohes KGV + sehr hohes Wachstum = auch gut
-    kgv_score = normalize_0_100(df["Forward_KGV"], higher_better=False)
-    peg_score = normalize_0_100(df["PEG"], higher_better=False)
-    ev_score = normalize_0_100(df["EV_EBITDA"], higher_better=False)
-    bewertung_base = (kgv_score*0.4 + peg_score*0.3 + ev_score*0.3)
+        ratio = wert / median
+        if not higher_better: ratio = 1/ratio if ratio > 0 else 1.0
 
-    # Multiplikator: Wachstum macht teure Bewertung ok
-    wachstum_mult = normalize_0_100(df["EPS_Wachstum"], higher_better=True) / 100 + 0.5
-    df["Bewertung"] = (bewertung_base * wachstum_mult).clip(0,100).round(1)
+        # Z-Score auf 0-100
+        mean, std = np.log(sektor_df[spalte].dropna()).mean(), np.log(sektor_df[spalte].dropna()).std()
+        if std == 0: scores.append(50)
+        else:
+            z = (np.log(wert) - mean) / (std * 2) if pd.notna(wert) and wert > 0 else 0
+            score = (z.clip(-1,1) + 1) * 50
+            scores.append(score)
+    return pd.Series(scores, index=df.index)
 
-    # FAKTOR 4: BILANZ 15%
-    bilanz_score = normalize_0_100(df["NetDebt_EBITDA"], higher_better=False) # weniger Schulden = besser
-    df["Bilanz"] = bilanz_score.round(1)
+def berechne_scores(df, horizont):
+    # GEWICHTE HORIZONTABHAENGIG - BUGFIX 1
+    if horizont == "6M":
+        w_fund, w_these, w_mod = 0.35, 0.40, 0.25 # Kurz: mehr Momentum/ATH
+    else: # 12M
+        w_fund, w_these, w_mod = 0.40, 0.45, 0.15 # Lang: mehr Fundamental/These
+
+    # SAEUlE 1: FUNDAMENTAL 40%
+    kgv_score = normalize_sektor(df, "Forward_KGV", higher_better=False)
+    wachstum_score = normalize_sektor(df, "Umsatz_Wachstum", higher_better=True)
+    qualitaet_score = normalize_sektor(df, "OpMarge", higher_better=True)
+    df["Fundamental_Score"] = (kgv_score*0.4 + wachstum_score*0.3 + qualitaet_score*0.3).round(1)
+
+    # SAEUlE 2: THESE 45%
+    df["AI_Exposure"] = df["Ticker"].map(AI_EXPOSURE).fillna(50)
+    df["Zyklusdaempfung"] = df["Ticker"].map(ZYKLUSDAEMPFUNG).fillna(50)
+    these_raw = df["AI_Exposure"]*0.7 + df["Zyklusdaempfung"]*0.3
+    # BUGFIX 3: Regime Multiplikator VOR clip
+    these_raw = these_raw * 1.1 # Kopfraum fuer Bonus
+    df["These_Score"] = these_raw.clip(0,100).round(1)
+
+    # MODIFIKATOR: ATH ABSTAND
+    mod = 1.0 + (df["ATH_Abstand_%"].fillna(0) / 100) * 0.3
+    df["ATH_Modifikator"] = np.where(df["Fundamental_Score"] > 50, mod, 1.0).round(2)
 
     # GESAMTSCORE
-    df["Gesamtscore"] = (
-        df["AI_Exposure"] * 0.40 +
-        df["Earnings_Momentum"] * 0.25 +
-        df["Bewertung"] * 0.20 +
-        df["Bilanz"] * 0.15
-    ).round(1)
+    df["Gesamtscore_Roh"] = (
+        df["Fundamental_Score"] * w_fund +
+        df["These_Score"] * w_these
+    ) * df["ATH_Modifikator"]
 
-    def get_rating(s):
-        if s >= 75: return "STRONG BUY"
-        elif s >= 60: return "BUY"
-        elif s >= 45: return "HOLD"
+    # FILTER: BILANZ DECKEL
+    def get_rating(row):
+        score = row["Gesamtscore_Roh"]
+        if row["NetDebt_EBITDA"] > 3: # Sicherheitsbremse
+            if score >= 75: return "BUY" # Deckel
+        if score >= 75: return "STRONG BUY"
+        elif score >= 60: return "BUY"
+        elif score >= 45: return "HOLD"
         else: return "SELL"
-    df["Rating"] = df["Gesamtscore"].apply(get_rating)
+    df["Rating"] = df.apply(get_rating, axis=1)
+    df["Gesamtscore"] = df["Gesamtscore_Roh"].round(1)
     return df
 
 # ========== UI ==========
 st.title(f"AI Infrastructure Cycle Ranking {VERSION}")
-st.caption("Frage: Wer profitiert am staerksten vom AI-Capex bis Jahresende?")
+st.caption("3 Saeulen + 1 Modifikator + 1 Filter")
+
+horizont = st.radio("Anlagehorizont", ["6M", "12M"], horizontal=True)
 
 with st.sidebar:
-    st.header("AI Capex Szenario")
-    regime = st.selectbox(
-        "Regime",
-        [1.20, 1.00, 0.80],
-        index=0,
-        format_func=lambda x: f"{x} - {'Boom' if x==1.20 else 'Normal' if x==1.00 else 'Abkuehlung'}"
-    )
-    st.info("Boom: +10 Punkte fuer HBM, Equipment, Foundry\nAbkuehlung: +10 Punkte fuer NVDA, MSFT, GOOGL, AVGO")
+    st.header("These Gewichte")
+    st.write("Fundamental: 40% | These: 45% | ATH Mod: 15% bei 12M")
+    st.write("Fundamental: 35% | These: 40% | ATH Mod: 25% bei 6M")
 
 col1,col2 = st.columns([1,2])
 with col1:
     st.info(
         """
-        Gewichtung:
-        - AI Exposure 40%
-        - Earnings Momentum 25%
-        - Bewertung 20%
-        - Bilanz 15%
+        Saeule 1 Fundamental 40%:
+        - Forward KGV sektor-relativ
+        - Umsatzwachstum yoy
+        - Operating Margin
 
-        Entfernt: Historie, FCF, Sektor-Median
-        Fokus: Nur Hebel auf AI-Capex
+        Saeule 2 These 45%:
+        - AI Exposure manuell
+        - Zyklusdaempfung manuell
+
+        Modifikator: ATH Abstand
+        Filter: NetDebt/EBITDA > 3 = kein STRONG BUY
         """
     )
 with col2:
@@ -226,21 +228,24 @@ if st.button("Ranking starten", type="primary"):
 
     df=pd.DataFrame(daten)
     for c in df.columns:
-        if c not in ["Ticker", "Name"]: df[c]=pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name", "Sektor"]: df[c]=pd.to_numeric(df[c], errors="coerce")
 
-    df = berechne_scores(df, regime).sort_values("Gesamtscore", ascending=False)
+    df = berechne_scores(df, horizont).sort_values("Gesamtscore", ascending=False)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
 
-    for c in ["EPS_Wachstum", "Umsatz_Wachstum", "OpMarge"]:
-        if c in df.columns: df[c]=(df[c]*100).round(1)
+    df["Umsatz_Wachstum"] = (df["Umsatz_Wachstum"]*100).round(1)
+    df["OpMarge"] = (df["OpMarge"]*100).round(1)
+    df["ATH_Abstand_%"] = df["ATH_Abstand_%"].round(1)
 
-    st.success(f"{len(df)} Aktien bewertet fuer AI-Capex Szenario")
+    st.success(f"{len(df)} Aktien bewertet")
 
-    tab1,tab2 = st.tabs(["Ranking", "Details"])
-    with tab1:
-        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","AI_Exposure","Earnings_Momentum","Bewertung","Bilanz","Forward_KGV","EPS_Wachstum"]], use_container_width=True, hide_index=True)
-    with tab2: st.dataframe(df, use_container_width=True, hide_index=True)
+    tab1,tab2,tab3 = st.tabs(["Transparenz", "Ranking", "Details"])
+    with tab1: # TRANSPARENZ-ANFORDERUNG
+        st.dataframe(df[["Ticker","Name","Fundamental_Score","These_Score","ATH_Modifikator","Gesamtscore","Rating","NetDebt_EBITDA"]], use_container_width=True, hide_index=True)
+    with tab2:
+        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Fundamental_Score","These_Score","ATH_Abstand_%","Forward_KGV","Umsatz_Wachstum"]], use_container_width=True, hide_index=True)
+    with tab3: st.dataframe(df, use_container_width=True, hide_index=True)
 
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v11")
-    st.download_button("Excel herunterladen", output.getvalue(), f"AI_Cycle_Ranking_v11_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v12")
+    st.download_button("Excel herunterladen", output.getvalue(), f"AI_Cycle_Ranking_v12_{horizont}_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
