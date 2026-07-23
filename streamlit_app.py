@@ -1,6 +1,6 @@
 # ============================================
-# Halbleiter & KI Aktien Ranking v10.7
-# AI Cycle Adjusted | 12 Monate Focus
+# Halbleiter & KI Aktien Ranking v10.8
+# Memory Cycle Adjusted | 12 Monate Focus
 # ============================================
 
 import streamlit as st
@@ -13,8 +13,8 @@ import io
 import warnings
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Halbleiter Ranking v10.7", layout="wide")
-VERSION = "v10.7"
+st.set_page_config(page_title="Halbleiter Ranking v10.8", layout="wide")
+VERSION = "v10.8"
 
 if "aktien_liste" not in st.session_state:
     st.session_state.aktien_liste = [
@@ -30,43 +30,49 @@ NAMEN = {
     "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-# AENDERUNG 3: Individueller AI Exposure statt nur Sektor
-AI_EXPOSURE = {
-    "NVDA": 1.35, # GPU Koenig
-    "000660.KS": 1.35, # SK Hynix HBM Leader
-    "AVGO": 1.30, # ASIC + Networking
-    "MU": 1.30, # HBM2e/HBM3
-    "TSM": 1.30, # Fertigt alles
-    "005930.KS": 1.25, # Samsung HBM + NAND
-    "ASML": 1.25, # EUV fuer AI Chips
-    "SNDK": 1.20, # Enterprise SSD + KI Storage
-    "285A.T": 1.20, # Kioxia NAND
-    "AMAT": 1.20, "LRCX": 1.20, "KLAC": 1.20, # Equipment
-    "AMD": 1.25, # MI300
-    "MSFT": 1.10, "GOOGL": 1.10, "AMZN": 1.10 # Hyperscaler mit Monetarisierung
+# AENDERUNG B: Granularer AI Exposure
+AI_EXPOSURE_DETAILED = {
+    "000660.KS": {"HBM":1.5, "DRAM":1.4, "NAND":1.0, "AI_Server":1.4, "Packaging":1.2}, # SK Hynix
+    "005930.KS": {"HBM":1.25,"DRAM":1.3, "NAND":1.1, "AI_Server":1.2, "Packaging":1.3}, # Samsung
+    "MU": {"HBM":1.3, "DRAM":1.35,"NAND":0.9, "AI_Server":1.3, "Packaging":1.1}, # Micron
+    "SNDK": {"HBM":0, "DRAM":0, "NAND":1.4, "AI_Server":1.3, "Packaging":1.0}, # SanDisk
+    "285A.T": {"HBM":0, "DRAM":0, "NAND":1.35,"AI_Server":1.2, "Packaging":1.0}, # Kioxia
+    "NVDA": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.5, "Packaging":1.3}, # Nvidia
+    "AVGO": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.4, "Packaging":1.2}, # Broadcom ASIC
+    "TSM": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.4, "Packaging":1.4}, # TSMC CoWoS
+    "ASML": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.25,"Packaging":1.0}, # EUV
+    "AMAT": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.2, "Packaging":1.1},
+    "LRCX": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.2, "Packaging":1.1},
+    "KLAC": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.2, "Packaging":1.1},
+    "AMD": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.3, "Packaging":1.1},
+    "MSFT": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.1, "Packaging":0},
+    "GOOGL": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.1, "Packaging":0},
+    "AMZN": {"HBM":0, "DRAM":0, "NAND":0, "AI_Server":1.1, "Packaging":0},
 }
-AI_CAP = 1.40
+AI_WEIGHTS = {"HBM":0.40, "DRAM":0.25, "NAND":0.25, "AI_Server":0.05, "Packaging":0.05} # Storage = NAND
 
-KPIS = ["Forward KGV", "EV/EBITDA", "Umsatztrend", "Gewinntrend", "Bruttomarge", "Operating Margin", "FCF-Marge", "Gewinnzyklus"]
+KPIS = ["Forward KGV", "PEG", "EV/EBITDA", "Umsatztrend", "Gewinntrend", "Bruttomarge", "Operating Margin", "FCF-Marge", "Gewinnzyklus", "MemoryCycle", "Bilanz"]
 
 KPI_QUALITAETS_GEWICHT = {
-    "Forward KGV": 0.20, "EV/EBITDA": 0.20, "Umsatztrend": 0.15,
-    "Gewinntrend": 0.15, "Bruttomarge": 0.10, "Operating Margin": 0.10, "FCF-Marge": 0.10
+    "Forward KGV": 0.15, "PEG": 0.15, "EV/EBITDA": 0.15, "Umsatztrend": 0.10,
+    "Gewinntrend": 0.10, "Bruttomarge": 0.08, "Operating Margin": 0.08, "FCF-Marge": 0.09
 }
 
-# AENDERUNG 1: Neue Gewichtung fuer AI-Capex Zyklus
+# AENDERUNG A: Neue Gewichtung
 def get_gewichte():
     base = {
-        "Bewertung": 0.25, # Verhindert Ueberzahlung
-        "Gewinnzyklus": 0.25, # EPS Turnaround + Margen Turnaround
-        "Qualitaet": 0.20, # Weniger Strafe fuer Zykliker
-        "AI_Narrativ": 0.30 # Hauptfaktor fuer 12M
+        "Gewinnzyklus": 0.30,
+        "Bewertung": 0.25, # PEG + KGV + EV/EBITDA
+        "AI_Narrativ": 0.20,
+        "Qualitaet": 0.15,
+        "Bilanz": 0.10
     }
     return {
-        "Forward KGV": base["Bewertung"] * 0.5, "EV/EBITDA": base["Bewertung"] * 0.5,
-        "Umsatztrend": base["Gewinnzyklus"] * 0.4, "Gewinntrend": base["Gewinnzyklus"] * 0.4, "Gewinnzyklus": base["Gewinnzyklus"] * 0.2,
+        "Forward KGV": base["Bewertung"] * 0.4, "PEG": base["Bewertung"] * 0.4, "EV/EBITDA": base["Bewertung"] * 0.2,
+        "Gewinnzyklus": base["Gewinnzyklus"],
+        "AI_Infrastruktur": base["AI_Narrativ"],
         "Bruttomarge": base["Qualitaet"] * 0.33, "Operating Margin": base["Qualitaet"] * 0.33, "FCF-Marge": base["Qualitaet"] * 0.34,
-        "AI_Infrastruktur": base["AI_Narrativ"]
+        "Bilanz": base["Bilanz"]
     }
 
 def safe_get(d, key, default=np.nan):
@@ -95,26 +101,51 @@ def berechne_cagr(series):
         return np.nan
     except: return np.nan
 
-# AENDERUNG 2: Gewinnzyklus Score fuer Zykliker
+# AENDERUNG C: Gewinnzyklus ohne Basiseffekt-Bonus
 def berechne_gewinnzyklus(row):
+    eps_score = 0
+    if row["Gewinntrend"] > 0.5: eps_score = 100
+    elif row["Gewinntrend"] > 0.2: eps_score = 75
+    elif row["Gewinntrend"] > 0: eps_score = 50
+    elif row["Gewinntrend"] > -0.2: eps_score = 25
+    else: eps_score = 0
+
+    margen_score = 0
+    if row["Operating Margin"] > 0.25: margen_score = 100
+    elif row["Operating Margin"] > 0.15: margen_score = 75
+    elif row["Operating Margin"] > 0.05: margen_score = 50
+    else: margen_score = 25
+
+    umsatz_score = 0
+    if row["Umsatztrend"] > 0.2: umsatz_score = 100
+    elif row["Umsatztrend"] > 0.05: umsatz_score = 75
+    elif row["Umsatztrend"] > -0.05: umsatz_score = 50
+    else: umsatz_score = 25
+
+    score = 0.5*eps_score + 0.3*margen_score + 0.2*umsatz_score
+    return score
+
+# AENDERUNG D: Memory Cycle Score
+def berechne_memory_cycle(ticker, df_row):
+    if ticker not in ["MU", "000660.KS", "005930.KS", "SNDK", "285A.T"]:
+        return 50 # Neutral fuer Nicht-Speicher
+
     score = 50
-    # 1. EPS Turnaround: von negativ zu positiv
-    if row["Gewinntrend"] > 0.3: score += 20 # >30% Wachstum
-    elif row["Gewinntrend"] > 0.1: score += 10
+    # 1. Bewertung: Niedriges KGV/PEG im Zyklus = gut
+    if df_row["Forward KGV"] < 8: score += 20
+    elif df_row["Forward KGV"] < 12: score += 10
+    if df_row["PEG"] < 0.5: score += 15
 
-    # 2. Margen Turnaround: Operating Margin Verbesserung
-    if row["Operating Margin"] > 0.15: score += 15
-    elif row["Operating Margin"] > 0.05: score += 5
-
-    # 3. Strafe wenn alles faellt
-    if row["Umsatztrend"] < -0.1 and row["Gewinntrend"] < -0.1: score -= 20
+    # 2. Turnaround Signal
+    if df_row["Gewinntrend"] > 0.2: score += 15
+    if df_row["Umsatztrend"] > 0.1: score += 10
 
     return max(0, min(100, score))
 
 def get_rating(score, daten_qualitaet, fehlende_anzahl):
-    if score >= 75 and daten_qualitaet >= 70 and fehlende_anzahl < 3:
+    if score >= 72 and daten_qualitaet >= 65 and fehlende_anzahl < 3:
         return "STRONG BUY"
-    elif score >= 60: return "BUY"
+    elif score >= 58: return "BUY"
     elif score >= 45: return "HOLD"
     else: return "SELL"
 
@@ -141,10 +172,15 @@ def get_yahoo_data(symbol, max_retries=2):
             marketcap = safe_get(info, "marketCap")
             if pd.isna(marketcap): return None, f"{symbol}: Keine Marketcap"
 
+            # AENDERUNG 4: Forward PE priorisieren
             kgv = safe_get(info, "forwardPE")
-            if pd.isna(kgv): kgv = safe_get(info, "trailingPE")
+            if pd.isna(kgv) or kgv <= 0: kgv = safe_get(info, "trailingPE")
             if pd.notna(kgv) and kgv <= 0: kgv = np.nan
             if pd.isna(kgv): fehlende.append("KGV")
+
+            # PEG Forward
+            peg = safe_get(info, "pegRatio")
+            if pd.isna(peg): fehlende.append("PEG")
 
             ev_ebitda = safe_get(info, "enterpriseToEbitda")
             if pd.isna(ev_ebitda): fehlende.append("EV/EBITDA")
@@ -177,12 +213,19 @@ def get_yahoo_data(symbol, max_retries=2):
             fcf_margin = np.mean(fcf_margins) if fcf_margins else np.nan
             if pd.isna(fcf_margin): fehlende.append("FCF")
 
+            # Bilanz: Net Debt / Marketcap
+            total_debt = safe_get(info, "totalDebt")
+            cash = safe_get(info, "totalCash")
+            net_debt_ratio = (total_debt - cash) / marketcap if pd.notna(total_debt) and pd.notna(cash) and marketcap > 0 else np.nan
+            if pd.isna(net_debt_ratio): fehlende.append("Bilanz")
+
             daten = {
                 "Ticker": symbol, "Name": NAMEN.get(symbol, symbol),
                 "Kurs": round(kurs,2), "Marktkapitalisierung Mrd": round(marketcap/1e9, 1),
-                "Forward KGV": kgv, "EV/EBITDA": ev_ebitda, "Umsatztrend": umsatztrend, "Gewinntrend": gewinntrend,
+                "Forward KGV": kgv, "PEG": peg, "EV/EBITDA": ev_ebitda,
+                "Umsatztrend": umsatztrend, "Gewinntrend": gewinntrend,
                 "Bruttomarge": gross_margin, "Operating Margin": operating_margin, "FCF-Marge": fcf_margin,
-                "Fehlt": ", ".join(fehlende) if fehlende else "vollstaendig"
+                "Bilanz": net_debt_ratio, "Fehlt": ", ".join(fehlende) if fehlende else "vollstaendig"
             }
             return daten, None
         except Exception as e:
@@ -190,9 +233,10 @@ def get_yahoo_data(symbol, max_retries=2):
             else: return None, f"{symbol}: {str(e)[:80]}"
     return None, f"{symbol}: Rate Limit"
 
-# KEINE Sektor-Median Normalisierung mehr. Direkter Z-Score gegen alle.
 def normalize_kpi_global(df, spalte, typ="log"):
     werte = df[spalte].copy()
+    if spalte == "Bilanz": # Niedriger ist besser
+        werte = -werte
     if typ == "log":
         werte = 1/werte.where(werte>0)
     mean, std = werte.mean(), werte.std()
@@ -200,19 +244,24 @@ def normalize_kpi_global(df, spalte, typ="log"):
     z = (werte - mean) / (std * 1.5)
     return (z.clip(-2, 2) + 2) * 25
 
+# AENDERUNG B: Granularer AI Score
 def get_ai_exposure_score(df):
     scores = []
     for idx,row in df.iterrows():
-        basis = AI_EXPOSURE.get(row["Ticker"], 1.0)
-        score = (basis - 0.9) / (AI_CAP - 0.9) * 100
-        scores.append(max(0, min(100, score)))
+        ticker = row["Ticker"]
+        if ticker not in AI_EXPOSURE_DETAILED:
+            scores.append(50)
+            continue
+        factors = AI_EXPOSURE_DETAILED[ticker]
+        score = sum(factors[k] * AI_WEIGHTS[k] for k in AI_WEIGHTS.keys())
+        score_norm = (score - 0.5) / (1.5 - 0.5) * 100
+        scores.append(max(0, min(100, score_norm)))
     return pd.Series(scores, index=df.index)
 
 def berechne_scores(df):
-    # Gewinnzyklus berechnen
     df["Gewinnzyklus"] = df.apply(berechne_gewinnzyklus, axis=1)
+    df["MemoryCycle"] = [berechne_memory_cycle(t, df.loc[i]) for i,t in enumerate(df["Ticker"])]
 
-    # Datenqualitaet
     df_copy = df.copy()
     qualitaet_score = 0
     for kpi, gewicht in KPI_QUALITAETS_GEWICHT.items():
@@ -221,53 +270,56 @@ def berechne_scores(df):
     df["Datenqualitaet"] = (qualitaet_score * 100).round(0)
     df["Fehlende Anzahl"] = df_copy.isna().sum(axis=1)
 
-    # Imputation mit Gesamt-Median, nicht Sektor
     for kpi in KPIS:
         median = df[kpi].median()
         df[kpi] = df[kpi].fillna(median)
 
     norm = pd.DataFrame(index=df.index)
     norm["Forward KGV"] = normalize_kpi_global(df, "Forward KGV", typ="log")
+    norm["PEG"] = normalize_kpi_global(df, "PEG", typ="log")
     norm["EV/EBITDA"] = normalize_kpi_global(df, "EV/EBITDA", typ="log")
     norm["Umsatztrend"] = normalize_kpi_global(df, "Umsatztrend", typ="linear")
     norm["Gewinntrend"] = normalize_kpi_global(df, "Gewinntrend", typ="linear")
-    norm["Gewinnzyklus"] = df["Gewinnzyklus"] # schon 0-100
+    norm["Gewinnzyklus"] = df["Gewinnzyklus"]
+    norm["MemoryCycle"] = df["MemoryCycle"]
     norm["Bruttomarge"] = normalize_kpi_global(df, "Bruttomarge", typ="log")
     norm["Operating Margin"] = normalize_kpi_global(df, "Operating Margin", typ="log")
     norm["FCF-Marge"] = normalize_kpi_global(df, "FCF-Marge", typ="log")
+    norm["Bilanz"] = normalize_kpi_global(df, "Bilanz", typ="linear")
     norm["AI_Infrastruktur"] = get_ai_exposure_score(df)
     df["AI_Infrastruktur"] = norm["AI_Infrastruktur"].round(1)
 
     gewichte = get_gewichte()
+    # MemoryCycle mit in Gewinnzyklus einrechnen: 70% Gewinnzyklus + 30% Memory
+    norm["Gewinnzyklus"] = norm["Gewinnzyklus"]*0.7 + norm["MemoryCycle"]*0.3
+
     scores = [sum(norm.loc[idx,kpi]*w for kpi,w in gewichte.items() if kpi in norm.columns) for idx in df.index]
     df["Gesamtscore"] = pd.Series(scores, index=df.index).round(1)
 
-    # AENDERUNG: Weniger Strafe fuer fehlende Daten. Zykliker haben oft Luecken
     df["Bereinigter Score"] = (df["Gesamtscore"] * (0.75 + 0.25 * df["Datenqualitaet"]/100)).round(1)
     df["Rating"] = df.apply(lambda x: get_rating(x["Bereinigter Score"], x["Datenqualitaet"], x["Fehlende Anzahl"]), axis=1)
     return df
 
 st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
-st.caption("AI Cycle Adjusted | 12 Monate Focus")
+st.caption("Memory Cycle Adjusted | 12 Monate Focus")
 
 with st.sidebar:
-    st.header("AI Exposure")
-    st.info("NVDA 1.35 | SK Hynix 1.35 | AVGO 1.30 | MU 1.30 | TSM 1.30 | Samsung 1.25 | SanDisk 1.20")
+    st.header("AI Exposure Gewichtung")
+    st.info("HBM 40% | DRAM 25% | Storage 25% | Server 5% | Packaging 5%")
 
 col1,col2 = st.columns([1,2])
 with col1:
     st.info(
         """
         Anlagehorizont: 12 Monate
-        Methode: AI Cycle Adjusted
+        Methode: Memory Cycle Adjusted
 
         Gewichtung:
-        - AI Exposure 30%
+        - Gewinnzyklus 30%
         - Bewertung 25%
-        - Gewinnzyklus 25%
-        - Qualitaet 20%
-
-        Fokus: Wer profitiert vom AI-Capex
+        - AI Exposure 20%
+        - Qualitaet 15%
+        - Bilanz 10%
         """
     )
 with col2:
@@ -318,9 +370,9 @@ if st.button("Ranking starten", type="primary"):
 
     tab1,tab2,tab3 = st.tabs(["Ranking", "Details", "Export"])
     with tab1:
-        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Bereinigter Score","Rating","AI_Infrastruktur","Gewinnzyklus","Datenqualitaet","Forward KGV","Umsatztrend","Gewinntrend","Fehlt"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Bereinigter Score","Rating","AI_Infrastruktur","Gewinnzyklus","MemoryCycle","Datenqualitaet","Forward KGV","PEG","Fehlt"]], use_container_width=True, hide_index=True)
     with tab2: st.dataframe(df, use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v10.7")
-        st.download_button("Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.7_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v10.8")
+        st.download_button("Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.8_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
