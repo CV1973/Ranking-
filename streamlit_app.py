@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.3
-# FIX: Ranking startet nicht sofort. Debug + robuster State
+# AI Infrastructure Return Ranking v15.4
+# NEU: Ticker hinzufügen + Manueller Auswertungsstart
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.3", layout="wide")
-VERSION = "v15.3"
+st.set_page_config(page_title="AI Return Ranking v15.4", layout="wide")
+VERSION = "v15.4"
 
 st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
 
@@ -38,12 +38,11 @@ for key, val in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# HARD RESET BEI VERSIONSWECHSEL
 if st.session_state.version_loaded!= VERSION:
     for key, val in DEFAULTS.items():
         st.session_state[key] = val
     st.session_state.version_loaded = VERSION
-    st.rerun() # WICHTIG: Einmal neu starten damit alles sauber ist
+    st.rerun()
 
 NAMEN = {
     "NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron", "AVGO":"Broadcom", "ASML":"ASML",
@@ -56,9 +55,7 @@ KPI_LABELS = {"Forward_KGV":"Forward KGV","PEG":"PEG Ratio","EV_EBITDA":"EV/EBIT
 KPI_HINTS = {"Forward_KGV":"z.B. 25.4","PEG":"z.B. 0.8","EV_EBITDA":"z.B. 18","FCF_Yield":"z.B. 0.05 = 5%","Umsatz_Wachstum":"z.B. 0.15 = 15%","OpMarge":"z.B. 0.30 = 30%","FCF_Marge":"z.B. 0.20 = 20%","Performance_52W":"z.B. 0.40 = +40%"}
 
 def safe_get(info, key):
-    try:
-        value = info.get(key)
-        return np.nan if value is None else value
+    try: value = info.get(key); return np.nan if value is None else value
     except: return np.nan
 
 def parse_number(text):
@@ -75,9 +72,7 @@ def web_suche_kpi(ticker, kpi):
         text = BeautifulSoup(r.text, 'html.parser').get_text()
         patterns = {"PEG": r"PEG Ratio.*?([\d\.]+)","Forward_KGV": r"Forward P/E.*?([\d\.]+)","EV_EBITDA": r"EV/EBITDA.*?([\d\.]+)","FCF_Yield": r"Free Cash Flow Yield.*?([\-\d\.]+)%"}
         match = re.search(patterns[kpi], text, re.IGNORECASE)
-        if match:
-            val = float(match.group(1))
-            return val/100 if kpi == "FCF_Yield" else val
+        if match: val = float(match.group(1)); return val/100 if kpi == "FCF_Yield" else val
     except: pass
     return None
 
@@ -104,9 +99,8 @@ def yahoo_laden(ticker):
         fcf_marge = fcf / umsatz if not pd.isna(fcf) and not pd.isna(umsatz) and umsatz!= 0 else np.nan
         umsatz_wachstum = safe_get(info, "revenueGrowth"); op_marge = safe_get(info, "operatingMargins"); performance = safe_get(info, "52WeekChange")
         if pd.isna(performance):
-            try:
-                hist = yf.Ticker(ticker).history(period="1y")
-                if len(hist)>5: performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
+            try: hist = yf.Ticker(ticker).history(period="1y")
+            if len(hist)>5: performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
             except: pass
         return {"Forward_KGV":forward_kgv,"PEG":peg,"EV_EBITDA":ev_ebitda,"FCF_Yield":fcf_yield,"Umsatz_Wachstum":umsatz_wachstum,"OpMarge":op_marge,"FCF_Marge":fcf_marge,"Performance_52W":performance}
     except: return None
@@ -114,7 +108,7 @@ def yahoo_laden(ticker):
 def ticker_laden(ticker):
     init_ticker(ticker)
     obj = st.session_state.datenbank[ticker]
-    if obj["status"] in ["pruefen","fertig","übersprungen"]: return # kein reload
+    if obj["status"] in ["pruefen","fertig","übersprungen"]: return
     daten = yahoo_laden(ticker)
     if daten is None: obj["status"]="fehler"; return
     for kpi, wert in daten.items():
@@ -176,12 +170,40 @@ def kpi_assistent(ticker):
             obj["status"]="übersprungen"; naechster_ticker(); st.rerun()
     return False
 
+def ticker_hinzufuegen_box():
+    st.subheader("Ticker hinzufügen")
+    col1, col2 = st.columns([3,1])
+    with col1:
+        neuer_ticker = st.text_input("Ticker Symbol", key="neuer_ticker_input", placeholder="z.B. INTC").upper().strip()
+    with col2:
+        if st.button("➕ Hinzufügen", key="btn_add_ticker"):
+            if not neuer_ticker:
+                st.warning("Bitte Ticker eingeben")
+                return
+            # Prüfung 1: Schon vorhanden
+            if neuer_ticker in st.session_state.aktien_liste:
+                st.warning(f"{neuer_ticker} ist bereits in der Liste")
+                return
+            # Prüfung 2: Nicht gefunden
+            with st.spinner(f"Prüfe {neuer_ticker}..."):
+                test_daten = yahoo_laden(neuer_ticker)
+            if test_daten is None:
+                st.error(f"{neuer_ticker} nicht gefunden")
+                return
+            # OK: Hinzufügen
+            st.session_state.aktien_liste.append(neuer_ticker)
+            st.success(f"{neuer_ticker} hinzugefügt")
+            st.rerun()
+
 def assistenten_lauf():
-    # WICHTIG: Erst prüfen ob wir fertig sind
+    # Wenn alle durch sind -> Button zum Starten anzeigen
     if st.session_state.ticker_index >= len(st.session_state.aktien_liste):
-        st.session_state.ranking_start=True
-        st.rerun() # SOFORT rerun damit ranking block kommt
+        st.success("Alle Ticker geprüft")
+        if st.button("✅ Auswertung jetzt starten", type="primary"):
+            st.session_state.ranking_start=True
+            st.rerun()
         return
+
     ticker = st.session_state.aktien_liste[st.session_state.ticker_index]
     ticker_laden(ticker)
     obj = st.session_state.datenbank[ticker]
@@ -244,11 +266,13 @@ with st.sidebar:
         for key, val in DEFAULTS.items(): st.session_state[key] = val
         st.session_state.version_loaded = VERSION; st.rerun()
 
-fortschritt()
-
-# KRITISCHER FIX: Reihenfolge
-if st.session_state.ranking_start:
-    st.success("Alle Daten vollständig. Ranking wird berechnet.")
+if not st.session_state.ranking_start:
+    ticker_hinzufuegen_box() # NEU
+    st.divider()
+    fortschritt()
+    assistenten_lauf()
+else:
+    st.success("Auswertung läuft...")
     liste=[]; audit=[]
     for ticker,obj in st.session_state.datenbank.items():
         if obj["status"]=="fertig":
@@ -267,7 +291,5 @@ if st.session_state.ranking_start:
     st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
     with st.expander("KPI Audit Trail"): st.dataframe(df, use_container_width=True, hide_index=True)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.3")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
-else:
-    assistenten_lauf()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.4")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
