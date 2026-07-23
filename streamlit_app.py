@@ -1,11 +1,3 @@
-Danke für die 8.7/10 🙏
-
-Du hast recht mit allen 3 Punkten. v10.6a wird dadurch sauberer.
-
-### *v10.6a Changelog*
-1. *"Gültig bis Q4 2027" entfernt* → ersetzt durch "quartalsweise Review"
-2. *Datenqualität-Strafe erhöht*: `0.7 + 0.3_DQ` → `0.6 + 0.4_DQ`
-3. *AI-Gewicht bleibt bei 15%* - nicht höher
 # ============================================
 # Halbleiter & KI Aktien Ranking v10.6a
 # 12 Monate Focus | Fundamental Cycle Adjusted
@@ -81,7 +73,7 @@ def get_gewichte():
         "Bewertung": 0.20,
         "Wachstum": 0.35, # Haupttreiber in 12M
         "Qualität": 0.30,
-        "AI_Narrativ": 0.15 # Nicht höher
+        "AI_Narrativ": 0.15 # Nicht hoeher
     }
     return {
         "Forward KGV": base["Bewertung"] * 0.5, "EV/EBITDA": base["Bewertung"] * 0.5,
@@ -118,10 +110,10 @@ def berechne_cagr(series):
 
 def get_rating(score, daten_qualitaet, fehlende_anzahl):
     if score >= 78 and daten_qualitaet >= 80 and fehlende_anzahl < 2:
-        return "🟢 STRONG BUY"
-    elif score >= 65: return "🟢 BUY"
-    elif score >= 48: return "🟡 HOLD"
-    else: return "🔴 SELL"
+        return "STRONG BUY"
+    elif score >= 65: return "BUY"
+    elif score >= 48: return "HOLD"
+    else: return "SELL"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_yahoo_data(symbol, max_retries=2):
@@ -189,7 +181,7 @@ def get_yahoo_data(symbol, max_retries=2):
                 "Kurs": round(kurs,2), "Marktkapitalisierung Mrd": round(marketcap/1e9, 1),
                 "Forward KGV": kgv, "EV/EBITDA": ev_ebitda, "Umsatztrend": umsatztrend, "Gewinntrend": gewinntrend,
                 "Bruttomarge": gross_margin, "Operating Margin": operating_margin, "FCF-Marge": fcf_margin,
-                "Fehlt": ", ".join(fehlende) if fehlende else "vollständig"
+                "Fehlt": ", ".join(fehlende) if fehlende else "vollstaendig"
             }
             return daten, None
         except Exception as e:
@@ -221,7 +213,7 @@ def normalize_kpi(df, spalte, medians, typ="log"):
             if typ == "log":
                 ratio = 1 / ratio if spalte in ["Forward KGV", "EV/EBITDA"] and ratio > 0 else ratio
                 rel = np.log(ratio) if ratio > 0 else -1.0
-            else: # linear für Wachstum
+            else: # linear fuer Wachstum
                 rel = ratio - 1.0
         werte.append(rel)
 
@@ -243,13 +235,13 @@ def get_ai_infrastruktur_score(df, global_faktor):
 def berechne_scores(df, global_ai_faktor):
     medians = calc_sector_medians(df)
 
-    # Datenqualität VOR Imputation
+    # Datenqualitaet VOR Imputation
     df_copy_vor_imputation = df.copy()
     qualitaet_score = 0
     for kpi, gewicht in KPI_QUALITAETS_GEWICHT.items():
         hat_daten = (~df_copy_vor_imputation[kpi].isna()).astype(int)
         qualitaet_score += hat_daten * gewicht
-    df["Datenqualität"] = (qualitaet_score * 100).round(0)
+    df["Datenqualitaet"] = (qualitaet_score * 100).round(0)
     df["Fehlende Anzahl"] = df_copy_vor_imputation.isna().sum(axis=1)
 
     # ERST DANN Imputation
@@ -274,9 +266,9 @@ def berechne_scores(df, global_ai_faktor):
     scores = [sum(norm.loc[idx,kpi]*w for kpi,w in gewichte.items() if kpi in norm.columns) for idx in df.index]
     df["Gesamtscore"] = pd.Series(scores, index=df.index).round(1)
 
-    # PUNKT 2: Datenqualität-Strafe erhöht: 0.6 + 0.4*DQ
-    df["Bereinigter Score"] = (df["Gesamtscore"] * (0.6 + 0.4 * df["Datenqualität"]/100)).round(1)
-    df["Rating"] = df.apply(lambda x: get_rating(x["Bereinigter Score"], x["Datenqualität"], x["Fehlende Anzahl"]), axis=1)
+    # Datenqualitaet-Strafe erhoeht: 0.6 + 0.4*DQ
+    df["Bereinigter Score"] = (df["Gesamtscore"] * (0.6 + 0.4 * df["Datenqualitaet"]/100)).round(1)
+    df["Rating"] = df.apply(lambda x: get_rating(x["Bereinigter Score"], x["Datenqualitaet"], x["Fehlende Anzahl"]), axis=1)
     return df
 
 # ========== UI ==========
@@ -284,38 +276,36 @@ st.title(f"Halbleiter & KI Aktien Ranking {VERSION}")
 st.caption("12 Monate Focus | Fundamental Cycle Adjusted")
 
 with st.sidebar:
-    st.header("🚀 AI-Infrastruktur Narrativ")
+    st.header("AI-Infrastruktur Narrativ")
     st.info(AI_INFRA_INFO)
     faktor_auswahl = st.selectbox("Regime-Faktor", [1.20, 1.10, 1.00, 0.90, 0.80], index=2,
-                                  format_func=lambda x: f"{x} - {'Boom' if x>=1.1 else 'Neutral' if x==1.0 else 'Abkühlung'}")
+                                  format_func=lambda x: f"{x} - {'Boom' if x>=1.1 else 'Neutral' if x==1.0 else 'Abkuehlung'}")
 
 col1,col2 = st.columns([1,2])
 with col1:
-    # PUNKT 1: "Gültig bis Q4 2027" entfernt
     st.info(
         """
         **Anlagehorizont: 12 Monate**
-
         **Review: Quartalsweise**
 
-        Dieses Ranking bewertet das Chance-Risiko-Verhältnis
+        Dieses Ranking bewertet das Chance-Risiko-Verhaeltnis
         im aktuellen AI-Infrastrukturzyklus.
 
         Fokus 12M:
         - Gewinn- und Umsatzrevisionen 35%
-        - Margenqualität + FCF 30%
+        - Margenqualitaet + FCF 30%
         - Bewertung 20%
-        - AI-Capex Rückenwind 15%
+        - AI-Capex Rueckenwind 15%
 
         Kein Momentum-Faktor.
         Keine Trading-Signale.
         """
     )
 with col2:
-    such_ticker = st.text_input("Ticker hinzufügen")
+    such_ticker = st.text_input("Ticker hinzufuegen")
     c1,c2 = st.columns(2)
     with c1:
-        if st.button("Hinzufügen") and such_ticker.upper():
+        if st.button("Hinzufuegen") and such_ticker.upper():
             if such_ticker.upper() not in st.session_state.aktien_liste: st.session_state.aktien_liste.append(such_ticker.upper())
             st.rerun()
     with c2:
@@ -323,7 +313,7 @@ with col2:
 
 st.write(f"**Aktuelle Liste:** {', '.join(st.session_state.aktien_liste)}")
 
-if st.button("🚀 Ranking starten", type="primary"):
+if st.button("Ranking starten", type="primary"):
     progress = st.progress(0); daten=[]; fehler=[]; status = st.empty()
     for i,symbol in enumerate(st.session_state.aktien_liste):
         status.text(f"Lade {symbol} {i+1}/{len(st.session_state.aktien_liste)}")
@@ -335,7 +325,7 @@ if st.button("🚀 Ranking starten", type="primary"):
         if (i + 1) % 5 == 0: time.sleep(5)
 
     if fehler:
-        with st.expander(f"⚠️ Fehler ({len(fehler)})"):
+        with st.expander(f"Fehler ({len(fehler)})"):
             for f in fehler: st.write(f)
 
     if len(daten)<2: st.error("Zu wenige Daten"); st.stop()
@@ -350,29 +340,19 @@ if st.button("🚀 Ranking starten", type="primary"):
     for c in ["Umsatztrend", "Gewinntrend", "Bruttomarge", "Operating Margin", "FCF-Marge"]:
         if c in df.columns: df[c]=(df[c]*100).round(2)
 
-    st.success(f"✅ {len(df)} Aktien bewertet für 12 Monate")
+    st.success(f"{len(df)} Aktien bewertet fuer 12 Monate")
 
     a,b,c,d = st.columns(4)
-    with a: st.metric("STRONG BUY", len(df[df["Rating"].str.contains("STRONG BUY")]))
-    with b: st.metric("BUY", len(df[df["Rating"].str.contains("BUY") & ~df["Rating"].str.contains("STRONG")]))
-    with c: st.metric("HOLD", len(df[df["Rating"].str.contains("HOLD")]))
-    with d: st.metric("SELL", len(df[df["Rating"].str.contains("SELL")]))
+    with a: st.metric("STRONG BUY", len(df[df["Rating"]=="STRONG BUY"]))
+    with b: st.metric("BUY", len(df[df["Rating"]=="BUY"]))
+    with c: st.metric("HOLD", len(df[df["Rating"]=="HOLD"]))
+    with d: st.metric("SELL", len(df[df["Rating"]=="SELL"]))
 
     tab1,tab2,tab3 = st.tabs(["Ranking", "Details", "Export"])
     with tab1:
-        st.dataframe(df[["Datum","Ticker","Name","Sektor","Gesamtscore","Bereinigter Score","Rating","AI_Infrastruktur","Datenqualität","Forward KGV","EV/EBITDA","Umsatztrend","Gewinntrend","Fehlt"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["Datum","Ticker","Name","Sektor","Gesamtscore","Bereinigter Score","Rating","AI_Infrastruktur","Datenqualitaet","Forward KGV","EV/EBITDA","Umsatztrend","Gewinntrend","Fehlt"]], use_container_width=True, hide_index=True)
     with tab2: st.dataframe(df, use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v10.6a")
-        st.download_button("📊 Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.6a_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
-### *Was sich geändert hat:*
-Änderung	Alt v10.6	Neu v10.6a	Effekt
-**Datenqualität**	*0.7 + 0.3*DQ	*0.6 + 0.4*DQ	Aktie mit 70% DQ verliert jetzt 12% statt 9%
-**UI-Hinweis**	"Gültig bis Q4 2027"	"Review: Quartalsweise"	Realistischer
-**Momentum**	Nicht vorhanden	Bleibt draußen	Korrekt für Fundamental-Modell
-Deine erwartete Charakteristik passt: `MU, SK Hynix, NVDA` sollten jetzt oben stehen. `MSFT, GOOGL` eher Mitte wegen Capex.
-
-Damit sind wir bei 9/10. Für v11 können wir dann echte Analysten-EPS-Revisionen einbauen falls wir eine Datenquelle finden.
-
-Lass laufen und sag Bescheid wie die Ranking-Liste aussieht.
+        st.download_button("Excel herunterladen", output.getvalue(), f"KI_Ranking_v10.6a_{datetime.now().strftime('%Y-%m-%d')}_12M.xlsx")
