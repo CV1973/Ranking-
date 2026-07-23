@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.4.1
-# FIX: SyntaxError in yahoo_laden try/except
+# AI Infrastructure Return Ranking v15.5
+# FIX: Kein automatischer Start der Auswertung mehr
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.4.1", layout="wide")
-VERSION = "v15.4.1"
+st.set_page_config(page_title="AI Return Ranking v15.5", layout="wide")
+VERSION = "v15.5"
 
 st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
 
@@ -30,6 +30,7 @@ DEFAULTS = {
     "datenbank": {},
     "ticker_index": 0,
     "ranking_start": False,
+    "assistent_fertig": False, # NEU: Extra Flag
     "web_vorschlaege": {},
     "version_loaded": ""
 }
@@ -44,12 +45,7 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
     st.rerun()
 
-NAMEN = {
-    "NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron", "AVGO":"Broadcom", "ASML":"ASML",
-    "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research", "KLAC":"KLA",
-    "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"
-}
-
+NAMEN = {"NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron", "AVGO":"Broadcom", "ASML":"ASML", "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research", "KLAC":"KLA", "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"}
 PFLICHT_KPIS = ["Forward_KGV","PEG","EV_EBITDA","FCF_Yield","Umsatz_Wachstum","OpMarge","FCF_Marge","Performance_52W"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","PEG":"PEG Ratio","EV_EBITDA":"EV/EBITDA","FCF_Yield":"FCF Yield","Umsatz_Wachstum":"Umsatzwachstum","OpMarge":"Operative Marge","FCF_Marge":"FCF Marge","Performance_52W":"52 Wochen Performance"}
 KPI_HINTS = {"Forward_KGV":"z.B. 25.4","PEG":"z.B. 0.8","EV_EBITDA":"z.B. 18","FCF_Yield":"z.B. 0.05 = 5%","Umsatz_Wachstum":"z.B. 0.15 = 15%","OpMarge":"z.B. 0.30 = 30%","FCF_Marge":"z.B. 0.20 = 20%","Performance_52W":"z.B. 0.40 = +40%"}
@@ -98,16 +94,11 @@ def yahoo_laden(ticker):
         fcf_yield = fcf / marketcap if not pd.isna(fcf) and not pd.isna(marketcap) and marketcap!= 0 else np.nan
         fcf_marge = fcf / umsatz if not pd.isna(fcf) and not pd.isna(umsatz) and umsatz!= 0 else np.nan
         umsatz_wachstum = safe_get(info, "revenueGrowth"); op_marge = safe_get(info, "operatingMargins"); performance = safe_get(info, "52WeekChange")
-
-        # FIX: try/except Block korrekt eingerückt
         if pd.isna(performance):
             try:
                 hist = yf.Ticker(ticker).history(period="1y")
-                if len(hist)>5:
-                    performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
-            except:
-                pass
-
+                if len(hist)>5: performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
+            except: pass
         return {"Forward_KGV":forward_kgv,"PEG":peg,"EV_EBITDA":ev_ebitda,"FCF_Yield":fcf_yield,"Umsatz_Wachstum":umsatz_wachstum,"OpMarge":op_marge,"FCF_Marge":fcf_marge,"Performance_52W":performance}
     except: return None
 
@@ -199,12 +190,12 @@ def ticker_hinzufuegen_box():
             st.rerun()
 
 def assistenten_lauf():
+    # KRITISCH: Niemals automatisch ranking_start setzen
     if st.session_state.ticker_index >= len(st.session_state.aktien_liste):
+        st.session_state.assistent_fertig = True # Nur Flag setzen
         st.success("Alle Ticker geprüft")
-        if st.button("✅ Auswertung jetzt starten", type="primary"):
-            st.session_state.ranking_start=True
-            st.rerun()
         return
+
     ticker = st.session_state.aktien_liste[st.session_state.ticker_index]
     ticker_laden(ticker)
     obj = st.session_state.datenbank[ticker]
@@ -261,18 +252,15 @@ st.title(f"AI Infrastructure Return Ranking {VERSION}")
 with st.sidebar:
     st.header("Steuerung")
     st.write(f"Version: {VERSION}")
-    st.write(f"Status: {'Ranking' if st.session_state.ranking_start else 'Assistent'}")
+    st.write(f"Assistent: {'Fertig' if st.session_state.assistent_fertig else 'Läuft'}")
     st.write(f"Index: {st.session_state.ticker_index}/{len(st.session_state.aktien_liste)}")
     if st.button("🔄 Hard Reset"):
         for key, val in DEFAULTS.items(): st.session_state[key] = val
         st.session_state.version_loaded = VERSION; st.rerun()
 
-if not st.session_state.ranking_start:
-    ticker_hinzufuegen_box()
-    st.divider()
-    fortschritt()
-    assistenten_lauf()
-else:
+# LOGIK: 3 Zustände
+if st.session_state.ranking_start:
+    # 3. ZUSTAND: AUSWERTUNG
     st.success("Auswertung läuft...")
     liste=[]; audit=[]
     for ticker,obj in st.session_state.datenbank.items():
@@ -292,5 +280,22 @@ else:
     st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
     with st.expander("KPI Audit Trail"): st.dataframe(df, use_container_width=True, hide_index=True)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.4.1")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.4.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.5")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.5_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+
+elif st.session_state.assistent_fertig:
+    # 2. ZUSTAND: WARTEN AUF START
+    st.info("Assistent abgeschlossen")
+    if st.button("✅ Auswertung jetzt starten", type="primary"):
+        st.session_state.ranking_start=True
+        st.rerun()
+    if st.button("Zurück zum Assistenten"):
+        st.session_state.assistent_fertig=False
+        st.rerun()
+
+else:
+    # 1. ZUSTAND: ASSISTENT
+    ticker_hinzufuegen_box()
+    st.divider()
+    fortschritt()
+    assistenten_lauf()
