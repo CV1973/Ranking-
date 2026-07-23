@@ -1,7 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v13.8
-# Aenderungen: Typo Fix, TextInput, Quelle-Spalte, Plausibilitaet,
-# Auto-Websuche, Audit-Trail
+# AI Infrastructure Return Ranking v14.2
+# Aenderungen: 1 KPI pro Schritt, Fortschrittsbalken, Audit-Trail
 # ============================================
 
 import streamlit as st
@@ -12,13 +11,13 @@ import time
 from datetime import datetime
 import io
 import warnings
-import re
 import requests
 from bs4 import BeautifulSoup
+import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v13.8", layout="wide")
-VERSION = "v13.8"
+st.set_page_config(page_title="AI Return Ranking v14.2", layout="wide")
+VERSION = "v14.2"
 
 st.warning("Axiom: KI-Capex-Zyklus intakt bis Q4 2027. Frage: Wer hat Gewinnhebel + ist nicht ueberteuert?")
 
@@ -27,10 +26,10 @@ if "aktien_liste" not in st.session_state:
         "NVDA", "000660.KS", "005930.KS", "TSM", "MU", "AVGO", "ASML",
         "AMD", "AMAT", "LRCX", "KLAC", "285A.T", "SNDK", "MSFT", "GOOGL", "AMZN"
     ]
-if "manual_overrides" not in st.session_state:
-    st.session_state.manual_overrides = {} # {ticker: {kpi: {"wert": x, "quelle": "Manuell"}}}
-if "web_suggestions" not in st.session_state:
-    st.session_state.web_suggestions = {} # {ticker: {kpi: wert}}
+if "data_cache" not in st.session_state:
+    st.session_state.data_cache = {} # {"NVDA": {"daten": {...}, "audit": {...}, "status": "..."}}
+if "current_ticker_idx" not in st.session_state:
+    st.session_state.current_ticker_idx = 0
 
 NAMEN = {
     "NVDA": "Nvidia", "000660.KS": "SK Hynix", "005930.KS": "Samsung", "TSM": "TSMC", "MU": "Micron", "AVGO": "Broadcom", "ASML": "ASML",
@@ -38,12 +37,10 @@ NAMEN = {
     "285A.T": "Kioxia", "SNDK": "SanDisk", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon"
 }
 
-# 1. TYPO FIX
 PFLICHT_KPIS = [
     "Forward_KGV", "PEG", "EV_EBITDA", "FCF_Yield",
     "Umsatz_Wachstum", "OpMarge", "FCF_Marge", "Performance_52W"
 ]
-
 KPI_LABELS = {
     "Forward_KGV": "Forward KGV", "PEG": "PEG Ratio", "EV_EBITDA": "EV/EBITDA", "FCF_Yield": "FCF Yield",
     "Umsatz_Wachstum": "Umsatzwachstum", "OpMarge": "Op. Marge", "FCF_Marge": "FCF Marge", "Performance_52W": "52W Performance"
@@ -80,9 +77,8 @@ def percentile_score(series, higher_better=True):
     result[valid.index] = rank * 100.0
     return result
 
-# 6. AUTOMATISCHE INTERNETSUCHE
 def web_search_kpi(ticker, kpi):
-    """Einfache Suche auf StockAnalysis + Macrotrends. Gibt Wert oder None zurueck"""
+    # 2. Hinweis: Regex ist fragil bei KS.T. Laesst sich spaeter mit API ersetzen
     try:
         urls = {
             "PEG": f"https://stockanalysis.com/stocks/{ticker.lower()}/statistics/",
@@ -91,11 +87,9 @@ def web_search_kpi(ticker, kpi):
             "FCF_Yield": f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/"
         }
         if kpi not in urls: return None
-
         r = requests.get(urls[kpi], timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
         soup = BeautifulSoup(r.text, 'html.parser')
         text = soup.get_text()
-
         patterns = {
             "PEG": r"PEG Ratio.*?([\d\.]+)",
             "Forward_KGV": r"Forward P/E.*?([\d\.]+)",
@@ -105,52 +99,46 @@ def web_search_kpi(ticker, kpi):
         match = re.search(patterns[kpi], text, re.IGNORECASE)
         if match:
             val = float(match.group(1))
-            if kpi == "FCF_Yield": val = val / 100 # % zu Dezimal
+            if kpi == "FCF_Yield": val = val / 100
             return val
     except: pass
     return None
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_yahoo_data(symbol, max_retries=2):
-    for attempt in range(max_retries):
-        try:
-            time.sleep(1.5 + attempt * 2)
-            ticker = yf.Ticker(symbol)
-            info = ticker.info or {}
-            if not info:
-                if attempt < max_retries - 1: time.sleep(10)
-                continue
+def get_yahoo_data(symbol):
+    time.sleep(1.5)
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info or {}
+        if not info: return None, "Keine Daten"
 
-            forward_kgv = safe_get(info, "forwardPE")
-            if pd.isna(forward_kgv) or forward_kgv <= 0: forward_kgv = safe_get(info, "trailingPE")
-            peg = safe_get(info, "pegRatio")
-            ev_ebitda = safe_get(info, "enterpriseToEbitda")
-            fcf_yield = safe_get(info, "freeCashflow") / safe_get(info, "marketCap") if safe_get(info, "marketCap") else np.nan
-            umsatz_wachstum = safe_get(info, "revenueGrowth")
-            op_marge = safe_get(info, "operatingMargins")
-            fcf_marge = safe_get(info, "freeCashflow") / safe_get(info, "totalRevenue") if safe_get(info, "totalRevenue") else np.nan
-            perf_52w = safe_get(info, "52WeekChange")
-            if pd.isna(perf_52w):
-                try:
-                    hist = ticker.history(period="1y")
-                    if not hist.empty and len(hist) > 5:
-                        perf_52w = (hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]
-                except: pass
+        forward_kgv = safe_get(info, "forwardPE")
+        if pd.isna(forward_kgv) or forward_kgv <= 0: forward_kgv = safe_get(info, "trailingPE")
+        peg = safe_get(info, "pegRatio")
+        ev_ebitda = safe_get(info, "enterpriseToEbitda")
+        fcf_yield = safe_get(info, "freeCashflow") / safe_get(info, "marketCap") if safe_get(info, "marketCap") else np.nan
+        umsatz_wachstum = safe_get(info, "revenueGrowth")
+        op_marge = safe_get(info, "operatingMargins")
+        fcf_marge = safe_get(info, "freeCashflow") / safe_get(info, "totalRevenue") if safe_get(info, "totalRevenue") else np.nan
+        perf_52w = safe_get(info, "52WeekChange")
+        if pd.isna(perf_52w):
+            hist = ticker.history(period="1y")
+            if not hist.empty and len(hist) > 5:
+                perf_52w = (hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0]
 
-            # 7. AUDIT TRAIL: Quelle mitfuehren
-            daten = {}
-            quellen = {}
-            for kpi, val in [("Forward_KGV", forward_kgv), ("PEG", peg), ("EV_EBITDA", ev_ebitda), ("FCF_Yield", fcf_yield),
-                             ("Umsatz_Wachstum", umsatz_wachstum), ("OpMarge", op_marge), ("FCF_Marge", fcf_marge), ("Performance_52W", perf_52w)]:
-                daten[kpi] = val
-                quellen[kpi] = "Yahoo" if not pd.isna(val) else "Fehlt"
-
-            daten.update({"Ticker": symbol, "Name": NAMEN.get(symbol, symbol), "_quellen": quellen})
-            return daten, None
-        except Exception as e:
-            if "Too Many Requests" in str(e) and attempt < max_retries - 1: time.sleep(10)
-            else: return None, f"{symbol}: {str(e)[:80]}"
-    return None, f"{symbol}: Rate Limit"
+        daten = {"Ticker": symbol, "Name": NAMEN.get(symbol, symbol)}
+        audit = {}
+        for kpi, val in [("Forward_KGV", forward_kgv), ("PEG", peg), ("EV_EBITDA", ev_ebitda), ("FCF_Yield", fcf_yield),
+                         ("Umsatz_Wachstum", umsatz_wachstum), ("OpMarge", op_marge), ("FCF_Marge", fcf_marge), ("Performance_52W", perf_52w)]:
+            daten[kpi] = val
+            audit[kpi] = {
+                "quelle": "Yahoo" if not pd.isna(val) else "Fehlt",
+                "zeit": datetime.now().isoformat(),
+                "version": VERSION
+            }
+        return daten, audit, None
+    except Exception as e:
+        return None, {}, str(e)[:80]
 
 def berechne_scores(df):
     df["AI_Gewinnhebel"] = df["Performance_52W"].apply(momentum_score_100)
@@ -178,117 +166,136 @@ def berechne_scores(df):
     df["Rating"] = [get_ranking_rating(i) for i in range(n)]
     return df
 
-st.title(f"AI Infrastructure Return Ranking {VERSION}")
-st.caption("Gewichtung: Gewinnhebel 35% | Bewertung 40% | Gewinnqualitaet 20% | Daten 5%")
-st.info("**Regel:** Ranking nur mit 100% vollstaendigen Pflicht-KPIs. Fehlende Werte koennen manuell ergaenzt oder per Websuche gefunden werden.")
+def save_kpi(ticker, kpi, wert, quelle):
+    cache = st.session_state.data_cache[ticker]
+    cache["daten"][kpi] = wert
+    cache["audit"][kpi] = {
+        "quelle": quelle,
+        "zeit": datetime.now().isoformat(),
+        "version": VERSION
+    }
 
-col1,col2 = st.columns([1,2])
-with col1:
-    st.write("**Inkludierte Ticker:**")
-    st.code(", ".join(st.session_state.aktien_liste))
-with col2:
-    such_ticker = st.text_input("Ticker hinzufuegen")
-    c1,c2 = st.columns(2)
-    with c1:
-        if st.button("Hinzufuegen") and such_ticker:
-            ticker_up = such_ticker.upper()
-            if ticker_up in st.session_state.aktien_liste:
-                st.error(f"Fehler: {ticker_up} ist bereits in der Liste")
+def process_next_ticker():
+    if st.session_state.current_ticker_idx >= len(st.session_state.aktien_liste):
+        st.session_state.assistant_done = True
+        return
+
+    ticker = st.session_state.aktien_liste[st.session_state.current_ticker_idx]
+
+    if ticker in st.session_state.data_cache and st.session_state.data_cache[ticker]["status"] in ["vollstaendig", "uebersprungen", "fehler"]:
+        st.session_state.current_ticker_idx += 1
+        st.rerun()
+        return
+
+    if ticker not in st.session_state.data_cache:
+        with st.spinner(f"Lade {ticker}..."):
+            daten, audit, fehler = get_yahoo_data(ticker)
+            if fehler:
+                st.session_state.data_cache[ticker] = {"daten": None, "audit": {}, "status": "fehler"}
             else:
-                st.session_state.aktien_liste.append(ticker_up)
+                st.session_state.data_cache[ticker] = {"daten": daten, "audit": audit, "status": "geprueft"}
+        st.rerun()
+        return
+
+    cache = st.session_state.data_cache[ticker]
+    daten = cache["daten"]
+    fehlend = [k for k in PFLICHT_KPIS if pd.isna(daten.get(k))]
+
+    # 1. GROESSTER BUGFIX: NUR DEN ERSTEN FEHLENDEN KPI ANZEIGEN
+    if fehlend:
+        kpi = fehlend[0] # nur 1 KPI pro Durchgang
+        st.error(f"⏸️ {ticker} - {NAMEN.get(ticker, ticker)}: {KPI_LABELS[kpi]} fehlt")
+        st.caption(f"Noch {len(fehlend)} fehlende KPIs fuer diesen Ticker")
+
+        c_skip1, c_skip2 = st.columns([3,1])
+        with c_skip2:
+            if st.button("⏭️ Ticker überspringen", key=f"skip_{ticker}", type="secondary"):
+                cache["status"] = "uebersprungen"
+                st.session_state.current_ticker_idx += 1
                 st.rerun()
-    with c2:
-        if st.button("Liste leeren"): st.session_state.aktien_liste=[]; st.session_state.manual_overrides={}; st.rerun()
 
-if st.button("Daten laden & pruefen", type="primary"):
-    st.session_state.raw_data = []
-    st.session_state.fehlende_kpis = {}
-    progress = st.progress(0); status = st.empty()
+        c1, c2, c3 = st.columns([2,2,1])
+        with c1:
+            st.write(f"**{KPI_LABELS[kpi]}**")
+            st.caption(KPI_HINWEISE[kpi])
+        with c2:
+            eingabe = st.text_input("Wert", key=f"input_{ticker}_{kpi}", placeholder="z.B. 0.85")
+        with c3:
+            if st.button("🔍", key=f"web_{ticker}_{kpi}"):
+                vorschlag = web_search_kpi(ticker, kpi)
+                if vorschlag: st.session_state[f"vorschlag_{ticker}_{kpi}"] = vorschlag; st.rerun()
 
-    for i,symbol in enumerate(st.session_state.aktien_liste):
-        status.text(f"Lade {symbol} {i+1}/{len(st.session_state.aktien_liste)}")
-        data,error = get_yahoo_data(symbol)
-        if data:
-            quellen = data.pop("_quellen")
-            # Manual Overrides einspielen
-            if symbol in st.session_state.manual_overrides:
-                for kpi, v in st.session_state.manual_overrides[symbol].items():
-                    data[kpi] = v["wert"]
-                    quellen[kpi] = v["quelle"]
+        if f"vorschlag_{ticker}_{kpi}" in st.session_state:
+            st.info(f"Vorschlag: {st.session_state[f'vorschlag_{ticker}_{kpi}']} Quelle: Internet")
+            if st.button("Übernehmen", key=f"apply_web_{ticker}_{kpi}"):
+                val = st.session_state[f"vorschlag_{ticker}_{kpi}"]
+                save_kpi(ticker, kpi, val, "Internet")
+                st.rerun()
 
-            fehlend = [k for k in PFLICHT_KPIS if pd.isna(data.get(k))]
-            if fehlend:
-                st.session_state.fehlende_kpis[symbol] = {"kpis": fehlend, "quellen": quellen}
-            data["_quellen"] = quellen
-            st.session_state.raw_data.append(data)
-        else:
-            st.error(f"Ticker nicht gefunden: {symbol}")
-        progress.progress((i+1)/len(st.session_state.aktien_liste))
-        time.sleep(1.5)
+        if eingabe:
+            try:
+                val = float(eingabe)
+                if kpi in ["Umsatz_Wachstum","OpMarge","FCF_Marge","Performance_52W"] and val > 2:
+                    st.warning("Wert > 200%. Meintest du 0.15 statt 15?")
+                if st.button("Speichern", key=f"save_{ticker}_{kpi}"):
+                    save_kpi(ticker, kpi, val, "Manuell")
+                    st.rerun()
+            except: st.error("Keine Zahl")
+        return
 
-if "raw_data" in st.session_state and st.session_state.raw_data:
-    df_raw = pd.DataFrame(st.session_state.raw_data)
+    cache["status"] = "vollstaendig"
+    st.success(f"✓ {ticker} vollstaendig")
+    st.session_state.current_ticker_idx += 1
+    st.rerun()
 
-    if st.session_state.fehlende_kpis:
-        st.error("Folgende Ticker haben fehlende Pflicht-KPIs:")
-        for ticker, info in st.session_state.fehlende_kpis.items():
-            with st.expander(f"{ticker} - {NAMEN.get(ticker, ticker)}"):
-                st.write(f"Für Ticker {ticker} konnten folgende Kennzahlen nicht geladen werden:")
+st.title(f"AI Infrastructure Return Ranking {VERSION}")
 
-                for kpi in info["kpis"]:
-                    c1, c2, c3, c4 = st.columns([2,2,2,1])
-                    with c1:
-                        st.write(f"**{KPI_LABELS[kpi]}**")
-                        st.caption(KPI_HINWEISE[kpi]) # 4. EINGABE-HILFE
-                    with c2:
-                        # 2. TEXT_INPUT statt number_input
-                        eingabe = st.text_input("Wert", key=f"manual_{ticker}_{kpi}", placeholder="z.B. 0.85")
+# 3. FORTSCHRITTSBALKEN
+fortschritt = st.session_state.current_ticker_idx / len(st.session_state.aktien_liste)
+st.progress(fortschritt, text=f"Fortschritt: {st.session_state.current_ticker_idx}/{len(st.session_state.aktien_liste)} Ticker")
 
-                    # 6. WEBSUCHE BUTTON
-                    with c3:
-                        if st.button("🔍 Im Internet suchen", key=f"web_{ticker}_{kpi}"):
-                            vorschlag = web_search_kpi(ticker, kpi)
-                            if vorschlag:
-                                st.session_state.web_suggestions[(ticker,kpi)] = vorschlag
-                                st.rerun()
-                            else: st.warning("Nichts gefunden")
+col1,col2 = st.columns([3,1])
+with col1:
+    st.write("**Status:**")
+    for i, t in enumerate(st.session_state.aktien_liste):
+        status = "⏳"
+        if t in st.session_state.data_cache:
+            s = st.session_state.data_cache[t]["status"]
+            status = "✓" if s=="vollstaendig" else "⏭️" if s=="uebersprungen" else "❌"
+        st.write(f"{status} {t}")
+with col2:
+    if st.button("Alle Daten aktualisieren"):
+        st.session_state.data_cache = {}
+        st.session_state.current_ticker_idx = 0
+        st.session_state.assistant_done = False
+        st.rerun()
 
-                    if (ticker,kpi) in st.session_state.web_suggestions:
-                        vorschlag = st.session_state.web_suggestions[(ticker,kpi)]
-                        st.info(f"Vorschlag: {vorschlag} Quelle: StockAnalysis")
-                        if st.button("Übernehmen", key=f"apply_web_{ticker}_{kpi}"):
-                            if ticker not in st.session_state.manual_overrides: st.session_state.manual_overrides[ticker] = {}
-                            st.session_state.manual_overrides[ticker][kpi] = {"wert": vorschlag, "quelle": "Internet"}
-                            st.rerun()
+if "assistant_done" not in st.session_state:
+    st.session_state.assistant_done = False
 
-                    # 5. PLAUSIBILITAETSPRUEFUNG
-                    if eingabe:
-                        try:
-                            val = float(eingabe)
-                            if kpi in ["Umsatz_Wachstum","OpMarge","FCF_Marge","Performance_52W"] and val > 2:
-                                st.warning("Wert > 200%. Meintest du 0.15 statt 15?")
-                            if kpi == "PEG" and val > 50:
-                                st.warning("PEG > 50 ist unueblich. Bitte pruefen.")
-                            if st.button("Manuell übernehmen", key=f"apply_man_{ticker}_{kpi}"):
-                                if ticker not in st.session_state.manual_overrides: st.session_state.manual_overrides[ticker] = {}
-                                st.session_state.manual_overrides[ticker][kpi] = {"wert": val, "quelle": "Manuell"}
-                                st.rerun()
-                        except: st.error("Keine Zahl")
+if not st.session_state.assistant_done:
+    process_next_ticker()
+else:
+    st.success("Assistent abgeschlossen. Berechne Ranking...")
+    df_list = [v["daten"] for v in st.session_state.data_cache.values() if v["status"]=="vollstaendig"]
+    audit_list = [v["audit"] for v in st.session_state.data_cache.values() if v["status"]=="vollstaendig"]
 
-        if st.button("Alle manuellen Werte übernehmen und neu prüfen"):
-            st.rerun()
+    if len(df_list) < 2:
+        st.error("Zu wenige vollstaendige Ticker fuer Ranking")
         st.stop()
 
-    df = df_raw.copy()
+    df = pd.DataFrame(df_list)
     for c in df.columns:
-        if c not in ["Ticker", "Name", "_quellen"]: df[c]=pd.to_numeric(df[c], errors="coerce")
+        if c not in ["Ticker", "Name"]: df[c]=pd.to_numeric(df[c], errors="coerce")
 
     df = berechne_scores(df)
     df.insert(0, "Datum", datetime.now().strftime("%Y-%m-%d"))
 
-    # 3. QUELLE ANZEIGEN + 7. AUDIT TRAIL
+    # 4. AUDIT-TRAIL: Quelle + Zeit + Version pro KPI
     for kpi in PFLICHT_KPIS:
-        df[f"{kpi}_Quelle"] = df["_quellen"].apply(lambda x: x.get(kpi, "Unbekannt"))
+        df[f"{kpi}_Quelle"] = [a.get(kpi,{}).get("quelle","Unbekannt") for a in audit_list]
+        df[f"{kpi}_Zeit"] = [a.get(kpi,{}).get("zeit","") for a in audit_list]
+        df[f"{kpi}_Version"] = [a.get(kpi,{}).get("version","") for a in audit_list]
 
     df["Umsatz_Wachstum"] = (df["Umsatz_Wachstum"]*100).round(1)
     df["OpMarge"] = (df["OpMarge"]*100).round(1)
@@ -296,18 +303,14 @@ if "raw_data" in st.session_state and st.session_state.raw_data:
     df["FCF_Marge"] = (df["FCF_Marge"]*100).round(1)
     df["Performance_52W"] = (df["Performance_52W"]*100).round(1)
 
-    st.success(f"{len(df)} Aktien vollstaendig bewertet")
+    st.success(f"{len(df)} Aktien vollstaendig bewertet. {len(st.session_state.aktien_liste)-len(df)} uebersprungen.")
 
     tab1,tab2,tab3 = st.tabs(["Transparenz + Audit", "Ranking", "Export"])
     with tab1:
-        anzeige_df1 = df.rename(columns={"AI_Gewinnhebel": "AI_Gewinnhebel (52W-Momentum)"})
-        cols = ["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel (52W-Momentum)","Performance_52W","Bewertung_Score"]
-        for kpi in PFLICHT_KPIS:
-            cols.extend([kpi, f"{kpi}_Quelle"])
-        st.dataframe(anzeige_df1[cols], use_container_width=True, hide_index=True)
+        st.dataframe(df, use_container_width=True, hide_index=True)
     with tab2:
-        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating","Forward_KGV","PEG","EV_EBITDA"]], use_container_width=True, hide_index=True)
+        st.dataframe(df[["Datum","Ticker","Name","Gesamtscore","Rating"]], use_container_width=True, hide_index=True)
     with tab3:
         output=io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v13.8")
-        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v13.8_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v14.2")
+        st.download_button("Excel herunterladen", output.getvalue(), f"AI_Return_Ranking_v14.2_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
