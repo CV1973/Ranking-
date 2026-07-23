@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v15.4
-# NEU: Ticker hinzufügen + Manueller Auswertungsstart
+# AI Infrastructure Return Ranking v15.4.1
+# FIX: SyntaxError in yahoo_laden try/except
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v15.4", layout="wide")
-VERSION = "v15.4"
+st.set_page_config(page_title="AI Return Ranking v15.4.1", layout="wide")
+VERSION = "v15.4.1"
 
 st.warning("KI-Capex-Zyklus intakt bis Q4 2027. Ziel: Gewinner mit Gewinnhebel und vernünftiger Bewertung finden.")
 
@@ -98,10 +98,16 @@ def yahoo_laden(ticker):
         fcf_yield = fcf / marketcap if not pd.isna(fcf) and not pd.isna(marketcap) and marketcap!= 0 else np.nan
         fcf_marge = fcf / umsatz if not pd.isna(fcf) and not pd.isna(umsatz) and umsatz!= 0 else np.nan
         umsatz_wachstum = safe_get(info, "revenueGrowth"); op_marge = safe_get(info, "operatingMargins"); performance = safe_get(info, "52WeekChange")
+
+        # FIX: try/except Block korrekt eingerückt
         if pd.isna(performance):
-            try: hist = yf.Ticker(ticker).history(period="1y")
-            if len(hist)>5: performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
-            except: pass
+            try:
+                hist = yf.Ticker(ticker).history(period="1y")
+                if len(hist)>5:
+                    performance = (hist["Close"].iloc[-1] / hist["Close"].iloc[0] -1)
+            except:
+                pass
+
         return {"Forward_KGV":forward_kgv,"PEG":peg,"EV_EBITDA":ev_ebitda,"FCF_Yield":fcf_yield,"Umsatz_Wachstum":umsatz_wachstum,"OpMarge":op_marge,"FCF_Marge":fcf_marge,"Performance_52W":performance}
     except: return None
 
@@ -180,30 +186,25 @@ def ticker_hinzufuegen_box():
             if not neuer_ticker:
                 st.warning("Bitte Ticker eingeben")
                 return
-            # Prüfung 1: Schon vorhanden
             if neuer_ticker in st.session_state.aktien_liste:
                 st.warning(f"{neuer_ticker} ist bereits in der Liste")
                 return
-            # Prüfung 2: Nicht gefunden
             with st.spinner(f"Prüfe {neuer_ticker}..."):
                 test_daten = yahoo_laden(neuer_ticker)
             if test_daten is None:
                 st.error(f"{neuer_ticker} nicht gefunden")
                 return
-            # OK: Hinzufügen
             st.session_state.aktien_liste.append(neuer_ticker)
             st.success(f"{neuer_ticker} hinzugefügt")
             st.rerun()
 
 def assistenten_lauf():
-    # Wenn alle durch sind -> Button zum Starten anzeigen
     if st.session_state.ticker_index >= len(st.session_state.aktien_liste):
         st.success("Alle Ticker geprüft")
         if st.button("✅ Auswertung jetzt starten", type="primary"):
             st.session_state.ranking_start=True
             st.rerun()
         return
-
     ticker = st.session_state.aktien_liste[st.session_state.ticker_index]
     ticker_laden(ticker)
     obj = st.session_state.datenbank[ticker]
@@ -267,7 +268,7 @@ with st.sidebar:
         st.session_state.version_loaded = VERSION; st.rerun()
 
 if not st.session_state.ranking_start:
-    ticker_hinzufuegen_box() # NEU
+    ticker_hinzufuegen_box()
     st.divider()
     fortschritt()
     assistenten_lauf()
@@ -291,5 +292,5 @@ else:
     st.dataframe(df[["Ticker","Name","Gesamtscore","Rating","AI_Gewinnhebel","Bewertung_Score","Gewinnqualitaet_Score"]], use_container_width=True, hide_index=True)
     with st.expander("KPI Audit Trail"): st.dataframe(df, use_container_width=True, hide_index=True)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.4")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v15.4.1")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v15.4.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
