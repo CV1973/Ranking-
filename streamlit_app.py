@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v17.3.3
-# FINAL KISS UI: Ticker + AI_Score Box in Reihe
+# AI Infrastructure Return Ranking v17.3.4
+# FINAL KISS UI: Nur 1 Reihe "Ticker - Name | AI:Score"
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v17.3.3", layout="wide")
-VERSION = "v17.3.3"
+st.set_page_config(page_title="AI Return Ranking v17.3.4", layout="wide")
+VERSION = "v17.3.4"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
 # ============================================
@@ -185,7 +185,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# SCREEN 1: SAMMELN - MIT 2 BOXEN
+# SCREEN 1: SAMMELN - NUR 1 REIHE
 # ============================================
 
 def screen_sammeln():
@@ -197,24 +197,24 @@ def screen_sammeln():
     with col3: st.info(f"**ZYKLUS**\nCycle Score: {cycle:.0f} / 100\nStatus: {cycle_status(cycle)}")
 
     st.subheader("Aktuelle Ticker Liste")
-    cols = st.columns(4)
-    for i, ticker in enumerate(st.session_state.aktien_liste):
-        with cols[i%4]:
-            init_ticker(ticker)
-            ai = st.session_state.datenbank.get(ticker,{}).get("daten",{}).get("AI_Score", AI_SCORES.get(ticker,"?"))
-            name = NAMEN.get(ticker,ticker)
-            st.write(f"✓ {ticker} - {name} | AI:{ai}")
-
-    # NEU: HINTERLEGTE TICKER ÜBERSICHT
-    ticker_text = " | ".join(st.session_state.aktien_liste)
+    
+    # GEÄNDERT: Keine Spalte mehr. Nur 1 Reihe mit Format "Ticker - Name | AI:Score"
+    for ticker in st.session_state.aktien_liste:
+        init_ticker(ticker)
+    
+    ticker_reihe = " | ".join([
+        f"{t} - {NAMEN.get(t,t)} | AI:{st.session_state.datenbank[t]['daten'].get('AI_Score', '?')}"
+        for t in st.session_state.aktien_liste
+    ])
+    
     st.text_area(
-        "Hinterlegte Ticker",
-        ticker_text,
-        height=70,
+        "Watchlist",
+        ticker_reihe,
+        height=100,
         disabled=True
     )
 
-    # AI SCORE ÜBERSICHT
+    # AI SCORE ÜBERSICHT bleibt
     score_text = " | ".join([f"{t.split('.')[0]}:{s}" for t,s in AI_SCORES.items()])
     st.text_area(
         "Hinterlegte AI Strategische Scores",
@@ -335,8 +335,8 @@ def screen_ranking():
     st.subheader("Ranking")
     st.dataframe(df[["Ticker","Name","Gesamtscore","AI_Score","AI_Score_Status","Bewertung_Score","Qualitaet_Score","Momentum_Score","Risiko","Datenqualitaet"]].round(1), use_container_width=True, hide_index=True)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.3.3")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.3.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.3.4")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.3.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START
