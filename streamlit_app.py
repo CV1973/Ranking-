@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v17.3.2
-# FINAL KISS BUGFIX: Status + Risiko NaN Handling
+# AI Infrastructure Return Ranking v17.3.3
+# FINAL KISS UI: Ticker + AI_Score Box in Reihe
 # ============================================
 
 import streamlit as st
@@ -16,8 +16,8 @@ from bs4 import BeautifulSoup
 import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v17.3.2", layout="wide")
-VERSION = "v17.3.2"
+st.set_page_config(page_title="AI Return Ranking v17.3.3", layout="wide")
+VERSION = "v17.3.3"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
 # ============================================
@@ -185,7 +185,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# SCREEN 1: SAMMELN
+# SCREEN 1: SAMMELN - MIT 2 BOXEN
 # ============================================
 
 def screen_sammeln():
@@ -205,9 +205,25 @@ def screen_sammeln():
             name = NAMEN.get(ticker,ticker)
             st.write(f"✓ {ticker} - {name} | AI:{ai}")
 
+    # NEU: HINTERLEGTE TICKER ÜBERSICHT
+    ticker_text = " | ".join(st.session_state.aktien_liste)
+    st.text_area(
+        "Hinterlegte Ticker",
+        ticker_text,
+        height=70,
+        disabled=True
+    )
+
+    # AI SCORE ÜBERSICHT
     score_text = " | ".join([f"{t.split('.')[0]}:{s}" for t,s in AI_SCORES.items()])
-    st.text_area("Hinterlegte AI Strategische Scores", score_text, height=70, disabled=True)
-    st.caption("Nur neue Aktien benötigen manuelle Eingabe")
+    st.text_area(
+        "Hinterlegte AI Strategische Scores",
+        score_text,
+        height=70,
+        disabled=True
+    )
+
+    st.caption("Nur neue Aktien benötigen manuelle AI-Score Eingabe")
     st.divider()
 
     neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
@@ -231,7 +247,7 @@ def screen_sammeln():
             baue_abfrage_queue()
         st.session_state.modus = "uebersicht"; st.rerun()
 
-# Screens 2-3 unverändert
+# Screens 2-4 unverändert v17.3.2
 def screen_uebersicht():
     st.title(f"AI Infrastructure Return Ranking {VERSION}")
     st.subheader("2. Daten-Übersicht")
@@ -284,10 +300,6 @@ def screen_abfrage():
             if input_key in st.session_state: del st.session_state[input_key]
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
-# ============================================
-# SCREEN 4: RANKING - MIT 2 FIXES
-# ============================================
-
 def screen_ranking():
     st.title(f"AI Infrastructure Return Ranking {VERSION}")
     st.success("Auswertung läuft...")
@@ -310,27 +322,21 @@ def screen_ranking():
     trend = percentile_score(df["Abstand_200"], True); vol = percentile_score(df["Volatilitaet"], False)
     df["Momentum_Score"]=(perf*0.40 + rs*0.30 + trend*0.20 + vol*0.10)
     df["Strategie_Score"] = df["AI_Score"].fillna(50)
-
-    # 1. FIX: "hinterlegt" statt "manuell"
     df["AI_Score_Status"] = np.where(df["AI_Score"].isna(), "fehlend", "hinterlegt")
-
     df["Rohscore"]=(df["Bewertung_Score"]*0.30 + df["Qualitaet_Score"]*0.30 + df["Momentum_Score"]*0.20 + df["Strategie_Score"]*0.20)
     daten_quali = df[PFLICHT_KPIS].notna().sum(axis=1) / len(PFLICHT_KPIS)
     df["Gesamtscore"]=(df["Rohscore"] * (0.6 + 0.4 * daten_quali)).round(1)
-
-    # 2. FIX: NaN Handling für Risiko
     df["Risiko"] = df["Volatilitaet"].apply(
         lambda x: "unbekannt" if pd.isna(x) else "hoch" if x>0.6 else "mittel" if x>0.4 else "niedrig"
     )
-
     df=df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     ratings=["STRONG BUY" if i < len(df)*0.2 else "BUY" if i < len(df)*0.5 else "HOLD" for i in range(len(df))]
     df["Rating"]=ratings; df["Datenqualitaet"] = (daten_quali*100).round(0).astype(int).astype(str) + "%"
     st.subheader("Ranking")
     st.dataframe(df[["Ticker","Name","Gesamtscore","AI_Score","AI_Score_Status","Bewertung_Score","Qualitaet_Score","Momentum_Score","Risiko","Datenqualitaet"]].round(1), use_container_width=True, hide_index=True)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.3.2")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.3.2_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.3.3")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.3.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START
