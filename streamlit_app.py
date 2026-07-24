@@ -1,6 +1,6 @@
 # ============================================
 # AI Infrastructure Return Ranking v17.2.1
-# FINAL: KISS Frozen. Nur Bugfixes
+# FINAL: KISS Frozen. AI Infrastructure Gewinner bis Q4 2027
 # ============================================
 
 import streamlit as st
@@ -20,6 +20,10 @@ st.set_page_config(page_title="AI Return Ranking v17.2.1", layout="wide")
 VERSION = "v17.2.1"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
+# ============================================
+# SESSION STATE
+# ============================================
+
 DEFAULTS = {
     "aktien_liste": ["NVDA","000660.KS","005930.KS","TSM","MU","AVGO","ASML","AMD","AMAT","LRCX","KLAC","285A.T","SNDK","MSFT","GOOGL","AMZN"],
     "datenbank": {},
@@ -38,7 +42,11 @@ if st.session_state.version_loaded!= VERSION:
         st.session_state[key] = val
     st.session_state.version_loaded = VERSION
 
-NAMEN = {"NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron", "AVGO":"Broadcom", "ASML":"ASML", "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research", "KLAC":"KLA", "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"}
+NAMEN = {
+    "NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron",
+    "AVGO":"Broadcom", "ASML":"ASML", "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research",
+    "KLAC":"KLA", "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"
+}
 
 PFLICHT_KPIS = [
     "Forward_KGV","PEG","EV_EBITDA","FCF_Yield",
@@ -57,15 +65,18 @@ KPI_HINTS = {
     "Umsatz_Wachstum":"z.B. 0.15 = 15%","OpMarge":"z.B. 0.30 = 30%","FCF_Marge":"z.B. 0.20 = 20%",
     "Performance_52W":"z.B. 0.40 = +40%",
     "AI_Score":"""0-100 Punkte:
-90-100 = dominanter AI Gewinner
-(z.B. Nvidia CUDA, TSMC Leading Edge)
-70-90 = starke Position
-(z.B. SK Hynix HBM, Broadcom ASIC)
+90-100 = dominanter AI Gewinner (Nvidia CUDA, TSMC Leading Edge)
+70-90 = starke Position (SK Hynix HBM, Broadcom ASIC)
 50-70 = AI Exposure vorhanden
 30-50 = indirekter Gewinner
 0-30 = kaum AI Vorteil"""
 }
 
+# ============================================
+# HELPER FUNKTIONEN
+# ============================================
+
+@st.cache_data(ttl=3600)
 def get_fear_greed():
     try:
         url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
@@ -73,21 +84,35 @@ def get_fear_greed():
         return r.json()["fear_and_greed"]["score"]
     except: return np.nan
 
-def get_cycle_score(): return 80
-def fear_greed_status(score): return "Neutral" if pd.isna(score) else "Extreme Fear" if score<20 else "Fear" if score<40 else "Neutral" if score<60 else "Greed" if score<80 else "Extreme Greed"
-def cycle_status(score): return "Spätzyklisch / Attraktiv" if score >= 80 else "Mid-Cycle" if score >= 60 else "Frühzyklisch / Vorsicht"
+def get_cycle_score():
+    return 80 # Proxy: AI CAPEX 100, Memory 100, Inventory 50, PMI 70
+
+def fear_greed_status(score):
+    if pd.isna(score): return "Unbekannt"
+    if score < 20: return "Extreme Fear"
+    elif score < 40: return "Fear"
+    elif score < 60: return "Neutral"
+    elif score < 80: return "Greed"
+    else: return "Extreme Greed"
+
+def cycle_status(score):
+    if score >= 80: return "Spätzyklisch / Attraktiv"
+    elif score >= 60: return "Mid-Cycle"
+    else: return "Frühzyklisch / Vorsicht"
+
 def safe_get(info, key):
-    try: value = info.get(key); return np.nan if value is None else value
+    try:
+        value = info.get(key)
+        return np.nan if value is None else value
     except: return np.nan
 
-# 2. FIX: parse_number kpi-aware
 def parse_number(text, kpi=None):
     if text is None: return np.nan
     text = str(text).strip().replace(",", ".")
     try:
         if "%" in text:
             value = float(text.replace("%",""))
-            if kpi == "AI_Score": # AI_Score ist 0-100, nicht %
+            if kpi == "AI_Score":
                 return value
             return value / 100
         return float(text)
@@ -95,7 +120,26 @@ def parse_number(text, kpi=None):
 
 def web_suche_kpi(ticker, kpi):
     if kpi == "AI_Score": return None
-    try: pass
+    try:
+        urls = {
+            "PEG": f"https://stockanalysis.com/stocks/{ticker.lower()}/statistics/",
+            "Forward_KGV": f"https://stockanalysis.com/stocks/{ticker.lower()}/statistics/",
+            "EV_EBITDA": f"https://stockanalysis.com/stocks/{ticker.lower()}/statistics/",
+            "FCF_Yield": f"https://stockanalysis.com/stocks/{ticker.lower()}/financials/"
+        }
+        if kpi not in urls: return None
+        r = requests.get(urls[kpi], timeout=6, headers={'User-Agent': 'Mozilla/5.0'})
+        text = BeautifulSoup(r.text, 'html.parser').get_text()
+        patterns = {
+            "PEG": r"PEG Ratio.*?([\d\.]+)",
+            "Forward_KGV": r"Forward P/E.*?([\d\.]+)",
+            "EV_EBITDA": r"EV/EBITDA.*?([\d\.]+)",
+            "FCF_Yield": r"Free Cash Flow Yield.*?([\-\d\.]+)%"
+        }
+        match = re.search(patterns[kpi], text, re.IGNORECASE)
+        if match:
+            val = float(match.group(1))
+            return val/100 if kpi == "FCF_Yield" else val
     except: pass
     return None
 
@@ -115,13 +159,20 @@ def yahoo_laden(ticker):
         tk = yf.Ticker(ticker)
         info = tk.info or {}
         if not info: return None
+
         forward_kgv = safe_get(info, "forwardPE")
         if pd.isna(forward_kgv): forward_kgv = safe_get(info, "trailingPE")
-        peg = safe_get(info, "pegRatio"); ev_ebitda = safe_get(info, "enterpriseToEbitda")
-        fcf = safe_get(info, "freeCashflow"); marketcap = safe_get(info, "marketCap"); umsatz = safe_get(info, "totalRevenue")
+        peg = safe_get(info, "pegRatio")
+        ev_ebitda = safe_get(info, "enterpriseToEbitda")
+        fcf = safe_get(info, "freeCashflow")
+        marketcap = safe_get(info, "marketCap")
+        umsatz = safe_get(info, "totalRevenue")
+
         fcf_yield = fcf / marketcap if not pd.isna(fcf) and not pd.isna(marketcap) and marketcap!= 0 else np.nan
         fcf_marge = fcf / umsatz if not pd.isna(fcf) and not pd.isna(umsatz) and umsatz!= 0 else np.nan
-        umsatz_wachstum = safe_get(info, "revenueGrowth"); op_marge = safe_get(info, "operatingMargins")
+        umsatz_wachstum = safe_get(info, "revenueGrowth")
+        op_marge = safe_get(info, "operatingMargins")
+
         hist = tk.history(period="1y")
         perf_52w = np.nan; rs_vs_nasdaq = np.nan; abstand_200 = np.nan; volat = np.nan
         if len(hist) > 200:
@@ -130,7 +181,10 @@ def yahoo_laden(ticker):
             abstand_200 = hist["Close"].iloc[-1] / sma200 - 1
             volat = hist["Close"].pct_change().std() * np.sqrt(252)
             nasdaq = yf.Ticker("^IXIC").history(period="1y")
-            if len(nasdaq) > 0: rs_vs_nasdaq = perf_52w - (nasdaq["Close"].iloc[-1] / nasdaq["Close"].iloc[0] - 1)
+            if len(nasdaq) > 0:
+                perf_nasdaq = nasdaq["Close"].iloc[-1] / nasdaq["Close"].iloc[0] - 1
+                rs_vs_nasdaq = perf_52w - perf_nasdaq
+
         return {
             "Forward_KGV":forward_kgv,"PEG":peg,"EV_EBITDA":ev_ebitda,"FCF_Yield":fcf_yield,
             "Umsatz_Wachstum":umsatz_wachstum,"OpMarge":op_marge,"FCF_Marge":fcf_marge,"Performance_52W":perf_52w,
@@ -138,7 +192,6 @@ def yahoo_laden(ticker):
         }
     except: return None
 
-# 1. FIX: AI_Score immer abfragen
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
     fehlend = [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi, np.nan))]
@@ -163,11 +216,103 @@ def baue_abfrage_queue():
             queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
-def screen_sammeln():...
-def screen_uebersicht():...
+# ============================================
+# SCREEN 1: SAMMELN
+# ============================================
+
+def screen_sammeln():
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
+
+    fear_greed = get_fear_greed()
+    cycle = get_cycle_score()
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info(f"**Investment Thesis:**\nAI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION}")
+    with col2:
+        st.info(f"**MARKTREGIME**\nFear & Greed: {fear_greed:.0f} / 100\nStatus: {fear_greed_status(fear_greed)}\nInterp: {'Aggressive Käufe attraktiv' if fear_greed < 30 else 'Neutral' if fear_greed < 70 else 'Vorsicht'}")
+    with col3:
+        st.info(f"**ZYKLUS**\nCycle Score: {cycle:.0f} / 100\nStatus: {cycle_status(cycle)}")
+
+    st.subheader("Aktuelle Ticker Liste")
+    cols = st.columns(4)
+    for i, ticker in enumerate(st.session_state.aktien_liste):
+        with cols[i%4]:
+            name = NAMEN.get(ticker, ticker)
+            st.write(f"✓ {ticker} - {name}")
+    st.caption(f"{len(st.session_state.aktien_liste)} Aktien geladen")
+    st.info("Fehlende Werte werden später einzeln abgefragt.")
+    st.divider()
+
+    neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("➕ Hinzufügen", use_container_width=True):
+            if neuer_ticker:
+                neuer_ticker = neuer_ticker.upper().strip()
+                if neuer_ticker in st.session_state.aktien_liste:
+                    st.warning(f"{neuer_ticker} ist bereits in der Liste")
+                else:
+                    with st.spinner(f"Prüfe {neuer_ticker}..."):
+                        if yahoo_laden(neuer_ticker) is None:
+                            st.error(f"{neuer_ticker} nicht gefunden")
+                        else:
+                            st.session_state.aktien_liste.append(neuer_ticker)
+                            st.success(f"{neuer_ticker} hinzugefügt")
+                            st.rerun()
+    with col2:
+        if st.button("🗑️ Letzten entfernen", use_container_width=True):
+            if len(st.session_state.aktien_liste) > 1:
+                entfernt = st.session_state.aktien_liste.pop()
+                st.success(f"{entfernt} entfernt")
+                st.rerun()
+
+    st.divider()
+    if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
+        with st.spinner("Lade Yahoo Daten und baue Abfrageliste..."):
+            baue_abfrage_queue()
+        st.session_state.modus = "uebersicht"
+        st.rerun()
+
+# ============================================
+# SCREEN 2: ÜBERSICHT
+# ============================================
+
+def screen_uebersicht():
+    st.title(f"AI Infrastructure Return Ranking {VERSION}")
+    st.subheader("2. Daten-Übersicht")
+    cols = st.columns(2)
+    with cols[0]:
+        st.write("### Gefundene Daten")
+        for ticker in st.session_state.aktien_liste:
+            voll = len(PFLICHT_KPIS) - len([k for k in PFLICHT_KPIS if pd.isna(st.session_state.datenbank[ticker]["daten"].get(k,np.nan))])
+            st.write(f"{ticker:<8} {voll}/{len(PFLICHT_KPIS)} KPIs")
+    with cols[1]:
+        st.write("### Fehlende Eingaben")
+        if len(st.session_state.abfrage_queue) == 0:
+            st.success("Alle Daten vorhanden")
+        else:
+            for ticker, kpi in st.session_state.abfrage_queue:
+                st.write(f"{ticker} {KPI_LABELS[kpi]}")
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ Jetzt Eingabe starten", type="primary", use_container_width=True):
+            if len(st.session_state.abfrage_queue) > 0: st.session_state.modus = "abfrage"
+            else: st.session_state.modus = "ranking"
+            st.rerun()
+    with col2:
+        if st.button("⬅️ Zurück zur Liste", use_container_width=True):
+            st.session_state.modus = "sammeln"; st.rerun()
+
+# ============================================
+# SCREEN 3: ABFRAGE
+# ============================================
+
 def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0:
         st.session_state.modus = "ranking"; st.rerun(); return
+
     ticker, kpi = st.session_state.abfrage_queue[0]
     st.title(f"AI Infrastructure Return Ranking {VERSION}")
     st.progress(1 - len(st.session_state.abfrage_queue)/max(1, len(st.session_state.abfrage_queue)+1))
@@ -175,27 +320,48 @@ def screen_abfrage():
     st.warning(f"Fehlender Wert: {KPI_LABELS[kpi]}")
     st.caption(f"Noch {len(st.session_state.abfrage_queue)} Abfragen offen")
     st.divider()
-    st.write(f"### {KPI_LABELS[kpi]}"); st.info(KPI_HINTS[kpi])
+    st.write(f"### {KPI_LABELS[kpi]}")
+    st.info(KPI_HINTS[kpi])
+
     input_key = f"input_{ticker}_{kpi}"
     if input_key not in st.session_state: st.session_state[input_key] = ""
+    if (ticker,kpi) in st.session_state.web_vorschlaege:
+        vorschlag = st.session_state.web_vorschlaege[(ticker,kpi)]
+        st.success(f"Vorschlag: {vorschlag}")
+        if st.button("Übernehmen", key=f"apply_web_{ticker}_{kpi}"):
+            save_kpi(ticker, kpi, vorschlag, "Internet")
+            del st.session_state.web_vorschlaege[(ticker,kpi)]
+            del st.session_state[input_key]
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
+
     eingabe = st.text_input("Wert eingeben", key=input_key, placeholder="z.B. 0.08 oder 85")
     col1,col2,col3 = st.columns(3)
     with col1:
         if st.button("💾 Speichern", key=f"save_{ticker}_{kpi}"):
             raw = eingabe
-            # 2. FIX: kpi mit übergeben
             wert = parse_number(raw, kpi)
             if pd.isna(wert): st.error(f"Keine gültige Zahl: '{raw}'"); return
-            save_kpi(ticker, kpi, wert, "Manuell"); del st.session_state[input_key]
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+            save_kpi(ticker, kpi, wert, "Manuell")
+            del st.session_state[input_key]
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
     with col2:
         if st.button("🔍 Websuche", key=f"web_{ticker}_{kpi}", disabled=(kpi=="AI_Score")):
-            st.error("Für AI_Score keine Websuche")
+            with st.spinner("Suche..."):
+                vorschlag = web_suche_kpi(ticker, kpi)
+                if vorschlag: st.session_state.web_vorschlaege[(ticker,kpi)] = vorschlag; st.rerun()
+                else: st.error("Nichts gefunden")
     with col3:
         if st.button("⏭️ Überspringen", key=f"skip_{ticker}_{kpi}"):
             save_kpi(ticker, kpi, np.nan, "Übersprungen")
             if input_key in st.session_state: del st.session_state[input_key]
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
+
+# ============================================
+# SCREEN 4: RANKING - V17.2.1 LOGIK
+# ============================================
 
 def screen_ranking():
     st.title(f"AI Infrastructure Return Ranking {VERSION}")
@@ -204,35 +370,61 @@ def screen_ranking():
     for ticker in st.session_state.aktien_liste:
         liste.append(st.session_state.datenbank[ticker]["daten"])
 
+    if len(liste)<2:
+        st.error("Zu wenige Aktien für Ranking")
+        if st.button("Zurück"): st.session_state.modus = "sammeln"; st.rerun()
+        return
+
     df=pd.DataFrame(liste)
     def percentile_score(series, higher_better=True):
-        s = pd.to_numeric(series, errors="coerce"); valid = s.dropna()
+        s = pd.to_numeric(series, errors="coerce")
+        valid = s.dropna()
         if len(valid)<2: return pd.Series(50, index=s.index)
         rank = valid.rank(pct=True)
         if not higher_better: rank = 1-rank
-        result=pd.Series(50, index=s.index, dtype=float); result.loc[valid.index]=rank*100; return result
+        result=pd.Series(50, index=s.index, dtype=float)
+        result.loc[valid.index]=rank*100
+        return result
 
-    kgv = percentile_score(df["Forward_KGV"], False); peg = percentile_score(df["PEG"], False)
-    ev = percentile_score(df["EV_EBITDA"], False); fcf = percentile_score(df["FCF_Yield"], True)
+    # 1. BEWERTUNG 30%
+    kgv = percentile_score(df["Forward_KGV"], False)
+    peg = percentile_score(df["PEG"], False)
+    ev = percentile_score(df["EV_EBITDA"], False)
+    fcf = percentile_score(df["FCF_Yield"], True)
     df["Bewertung_Score"]=(kgv*0.35+peg*0.25+ev*0.20+fcf*0.20)
-    growth=percentile_score(df["Umsatz_Wachstum"], True); marge=percentile_score(df["OpMarge"], True); fcfm=percentile_score(df["FCF_Marge"], True)
+
+    # 2. QUALITÄT 30%
+    growth=percentile_score(df["Umsatz_Wachstum"], True)
+    marge=percentile_score(df["OpMarge"], True)
+    fcfm=percentile_score(df["FCF_Marge"], True)
     df["Qualitaet_Score"]=(growth*0.35+marge*0.35+fcfm*0.30)
+
+    # 3. MOMENTUM 20%
     perf = percentile_score(df["Performance_52W"], True)
     rs = percentile_score(df["RS_vs_Nasdaq"], True)
     trend = percentile_score(df["Abstand_200"], True)
     vol = percentile_score(df["Volatilitaet"], False)
     df["Momentum_Score"]=(perf*0.40 + rs*0.30 + trend*0.20 + vol*0.10)
 
-    # 2. FIX: Direkt nutzen
+    # 4. AI STRATEGISCHER VORTEIL 20% - DIREKT
     df["Strategie_Score"] = df["AI_Score"].fillna(50)
-
-    # 3. NEU: Status Spalte
     df["AI_Score_Status"] = np.where(df["AI_Score"].isna(), "fehlend", "manuell")
 
+    # ROHSCORE 30/30/20/20
     df["Rohscore"]=(df["Bewertung_Score"]*0.30 + df["Qualitaet_Score"]*0.30 + df["Momentum_Score"]*0.20 + df["Strategie_Score"]*0.20)
+
+    # DATENQUALITÄT STRAFE: 0.6 + 0.4
     daten_quali = df[PFLICHT_KPIS].notna().sum(axis=1) / len(PFLICHT_KPIS)
     df["Gesamtscore"]=(df["Rohscore"] * (0.6 + 0.4 * daten_quali)).round(1)
-    df["Risiko"] = df["Volatilitaet"].apply(lambda x: "hoch" if x>0.6 else "mittel" if x>0.4 else "niedrig")
+
+    def risiko_tag(row):
+        vol = row.get("Volatilitaet", 0)
+        if pd.isna(vol): return "niedrig"
+        if vol > 0.6: return "hoch"
+        elif vol > 0.4: return "mittel"
+        else: return "niedrig"
+    df["Risiko"] = df.apply(risiko_tag, axis=1)
+
     df=df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     ratings=["STRONG BUY" if i < len(df)*0.2 else "BUY" if i < len(df)*0.5 else "HOLD" for i in range(len(df))]
     df["Rating"]=ratings
@@ -244,13 +436,32 @@ def screen_ranking():
         use_container_width=True, hide_index=True
     )
 
-    output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.2.1")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.2.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
-    if st.button("⬅️ Zurück zur Liste"):
-        st.session_state.modus = "sammeln"; st.rerun()
+    with st.expander("KPI Audit Trail"):
+        audit_df = pd.DataFrame([
+            {"Ticker":t, "KPI":k, **v}
+            for t,obj in st.session_state.datenbank.items()
+            for k,v in obj["audit"].items()
+        ])
+        st.dataframe(audit_df, use_container_width=True, hide_index=True)
 
-if st.session_state.modus == "sammeln": screen_sammeln()
-elif st.session_state.modus == "uebersicht": screen_uebersicht()
-elif st.session_state.modus == "abfrage": screen_abfrage()
-elif st.session_state.modus == "ranking": screen_ranking()
+    output=io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.2.1")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.2.1_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+
+    if st.button("⬅️ Zurück zur Liste"):
+        st.session_state.modus = "sammeln"
+        st.rerun()
+
+# ============================================
+# APP START
+# ============================================
+
+if st.session_state.modus == "sammeln":
+    screen_sammeln()
+elif st.session_state.modus == "uebersicht":
+    screen_uebersicht()
+elif st.session_state.modus == "abfrage":
+    screen_abfrage()
+elif st.session_state.modus == "ranking":
+    screen_ranking()
