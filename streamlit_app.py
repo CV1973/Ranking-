@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.44 KISS GLOBAL
-# NEU: Globales Ranking + Empfänger/Spender Logik
+# AI Infrastructure Ranking v7.45 KISS HART
+# NEU: OpMargin 30% + Capex_Bias +/-10P
 # ============================================
 
 import streamlit as st
@@ -16,7 +16,7 @@ import fear_and_greed
 warnings.filterwarnings("ignore")
 
 # ============================================
-# 0. LOGIN SCHUTZ v7.44
+# 0. LOGIN SCHUTZ v7.45
 # ============================================
 def check_password():
     def password_entered():
@@ -38,9 +38,9 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.44", layout="wide")
-VERSION = "v7.44"
-AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.45", layout="wide")
+VERSION = "v7.45"
+AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
 # 1. SESSION STATE
@@ -63,10 +63,10 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.44 - 58 WERTE MIT TYP
+# 2. STOCK_UNIVERSE v7.45 - 58 WERTE
 # ============================================
 STOCK_UNIVERSE = [
-# EMPFÄNGER +5P
+# EMPFÄNGER +10P
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
 {"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
 {"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
@@ -114,7 +114,7 @@ STOCK_UNIVERSE = [
 {"ticker":"CSCO", "name":"Cisco", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
 {"ticker":"NOK", "name":"Nokia", "country":"Finland", "flag":"🇫🇮", "segment":"Networking / Optical", "typ":"Empfänger"},
 
-# SPENDER -5P
+# SPENDER -10P
 {"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
 {"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
 {"ticker":"GOOGL", "name":"Alphabet", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
@@ -136,17 +136,17 @@ STOCK_UNIVERSE = [
 if len(st.session_state.aktien_liste) == 0:
     st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
 
-CAPEX_BIAS = {"Empfänger": 5, "Spender": -5, "Neutral": 0}
+CAPEX_BIAS = {"Empfänger": 10, "Spender": -10, "Neutral": 0}
 
-# GEWICHTUNG v7.44 KISS
+# GEWICHTUNG v7.45 KISS HART
 WEIGHTS = {
-    "Empfänger": {'Forward_KGV':0.10, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.10, 'FCF_Marge':0.10},
-    "Spender": {'Forward_KGV':0.10, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.10, 'Bruttomarge':0.20, 'Operating_Margin':0.25, 'FCF_Marge':0.25},
+    "Empfänger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
+    "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
 }
 
 # ============================================
-# 3. PFLICHT_KPIS v7.44
+# 3. PFLICHT_KPIS v7.45
 # ============================================
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
@@ -222,7 +222,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 5. SCORING ENGINE v7.44 GLOBAL
+# 5. SCORING ENGINE v7.45 GLOBAL HART
 # ============================================
 def normalize_global(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce")
@@ -250,7 +250,7 @@ def calculate_scores(df):
         score = sum(row[f'Norm_{col}'] * w for col, w in weights.items())
         df.at[idx, 'Finanzscore'] = score * 100
 
-    # 3. Gesamtscore
+    # 3. Gesamtscore mit härterem Bias
     df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9
     df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität']) + df['Capex_Bias']).round(1)
     df.loc[~df['Vollständig'], ['Finanzscore','Gesamtscore']] = np.nan
@@ -275,11 +275,21 @@ def highlight_na(val):
 def screen_sammeln():
     st.title(f"AI Infrastructure Ranking {VERSION}")
     fear_greed = get_fear_greed()
-    st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **Modus: Globales Ranking**")
+    st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **OpMargin: 30%**")
 
     st.subheader("Universum: 43 Empfänger + 8 Spender + 7 Neutral = 58 Werte")
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
-    st.dataframe(df_meta[['ticker','name','flag','segment','typ']], use_container_width=True, hide_index=True)
+    st.dataframe(
+        df_meta[['ticker','name','flag','segment','typ']],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "flag": st.column_config.TextColumn("Land", width="small"),
+            "name": st.column_config.TextColumn("Name", width="medium"),
+            "segment": st.column_config.TextColumn("Segment", width="medium"),
+            "typ": st.column_config.TextColumn("Typ", width="small"),
+        }
+    )
 
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
         with st.spinner("Lade Yahoo Daten..."):
@@ -321,8 +331,9 @@ def screen_ranking():
     df = calculate_scores(df)
     df["Investment_Rating"] = df["Gesamtscore"].apply(get_investment_rating)
 
-    st.subheader("Globales Ranking v7.44")
+    st.subheader("Globales Ranking v7.45 HART")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
+    st.caption("OpMargin 30% | Capex_Bias +/-10P | Wachstum Empfänger 30%")
 
     # Filter
     seg_filter = st.selectbox("Segment Filter", ["Alle"] + sorted(df['segment'].unique()))
@@ -337,11 +348,23 @@ def screen_ranking():
     format_dict['Capex_Bias'] = lambda x: f"{int(x):+d}P"
 
     styled_df = df_show.style.map(highlight_na).format(format_dict)
-    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+    st.dataframe(
+        styled_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "flag": st.column_config.TextColumn("Land", width="small"),
+            "name": st.column_config.TextColumn("Name", width="large"),
+            "segment": st.column_config.TextColumn("Segment", width="medium"),
+            "typ": st.column_config.TextColumn("Typ", width="small"),
+            "Investment_Rating": st.column_config.TextColumn("Rating", width="small"),
+        }
+    )
 
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.44")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.44_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.45")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.45_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START
