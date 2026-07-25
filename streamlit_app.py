@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.38 KISS FINAL + CNN F&G
-# Regel: Kein Score wenn KPI fehlt
+# AI Infrastructure Ranking v7.40 KISS FINAL
+# NEU: Segment-Clustering + Bulk Skip
 # ============================================
 
 import streamlit as st
@@ -16,7 +16,7 @@ import fear_and_greed
 warnings.filterwarnings("ignore")
 
 # ============================================
-# 0. LOGIN SCHUTZ v7.38
+# 0. LOGIN SCHUTZ v7.40
 # ============================================
 def check_password():
     def password_entered():
@@ -38,9 +38,10 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.38", layout="wide")
-VERSION = "v7.38"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.40", layout="wide")
+VERSION = "v7.40"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
+MIN_SEGMENT_SIZE = 5 # SCHRITT 2
 
 # ============================================
 # 1. SESSION STATE
@@ -63,7 +64,7 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.38 - 62 WERTE GEFIXT
+# 2. STOCK_UNIVERSE v7.40 - 62 WERTE
 # ============================================
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
@@ -136,11 +137,11 @@ SEGMENT_SCORE = {
     "Networking / Optical": 80, "Server / DC Hardware": 82, "Power / Cooling": 78,
     "Cloud / AI Platform": 85, "Automotive Semiconductor / Power Semiconductor": 78,
     "Nuclear Energy Supply": 70, "Nuclear Technology": 70, "AI Infrastructure Financing": 60,
-    "AI Infrastructure Software": 83
+    "AI Infrastructure Software": 83, "Sonstige AI Infrastructure": 75 # Fallback für Cluster
 }
 
 # ============================================
-# 3. PFLICHT_KPIS v7.38 KISS - 6 KPIs
+# 3. PFLICHT_KPIS v7.40 KISS - 6 KPIs
 # ============================================
 PFLICHT_KPIS = [
     "Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge",
@@ -201,7 +202,6 @@ def yahoo_laden(ticker):
         tk = yf.Ticker(ticker)
         info = tk.info or {}
         fin = tk.financials
-        bs = tk.balance_sheet
         cf = tk.cashflow
 
         price = safe_get(info,"currentPrice")
@@ -218,7 +218,6 @@ def yahoo_laden(ticker):
         fcf = safe_get(info,"freeCashflow")
         revenue = safe_get(info,"totalRevenue")
 
-        # FALLBACK aus Financials
         if pd.isna(revenue) and not fin.empty:
             revenue = fin.iloc[0,0]
         if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index:
@@ -268,10 +267,20 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 5. SCORING ENGINE v7.38 KISS - MIT HARTER REGEL
+# 5. SCORING ENGINE v7.40 KISS - SEGMENT CLUSTERING
 # ============================================
-def normalize(df, col, higher_better=True):
-    s = pd.to_numeric(df[col], errors="coerce")
+def get_segment_for_normalization(df):
+    # SCHRITT 3: Segmente mit <5 Aktien zusammenfassen
+    segment_counts = df['segment'].value_counts()
+    small_segments = segment_counts[segment_counts < MIN_SEGMENT_SIZE].index.tolist()
+
+    df['segment_norm'] = df['segment']
+    if small_segments:
+        df.loc[df['segment'].isin(small_segments), 'segment_norm'] = 'Sonstige AI Infrastructure'
+    return df
+
+def normalize_segment(df_group, col, higher_better=True):
+    s = pd.to_numeric(df_group[col], errors="coerce")
     valid = s.dropna()
     if len(valid) < 2: return pd.Series(np.nan, index=s.index)
     x = s.copy()
@@ -280,22 +289,28 @@ def normalize(df, col, higher_better=True):
     return rank
 
 def calculate_scores(df):
-    for col, w in WEIGHTS.items():
-        if col!= 'Strategic_Score':
-            lower_better = col in ['Forward_KGV','EV_EBITDA']
-            df[f'Norm_{col}'] = normalize(df, col, not lower_better) * w
+    # SCHRITT 3: Erst Segment-Clustering
+    df = get_segment_for_normalization(df)
 
     finanz_gewichte = {k:v for k,v in WEIGHTS.items() if k!= 'Strategic_Score'}
 
-    # HARTE REGEL: Nur berechnen wenn alle 6 KPIs da sind
+    # SCHRITT 4: Normalisierung und Finanzscore PRO segment_norm
+    for col, w in finanz_gewichte.items():
+        lower_better = col in ['Forward_KGV','EV_EBITDA']
+        df[f'Norm_{col}'] = df.groupby('segment_norm', group_keys=False).apply(
+            lambda x: normalize_segment(x, col, not lower_better) * w
+        ).reset_index(level=0, drop=True)
+
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
     df['Vollständig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
 
     df['Finanzscore'] = np.nan
-    df.loc[df['Vollständig'], 'Finanzscore'] = df.loc[df['Vollständig'], [f'Norm_{c}' for c in finanz_gewichte.keys()]].sum(axis=1, skipna=False) * 100
+    norm_cols = [f'Norm_{c}' for c in finanz_gewichte.keys()]
+    df.loc[df['Vollständig'], 'Finanzscore'] = df.loc[df['Vollständig'], norm_cols].sum(axis=1, skipna=False) * 100
 
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
 
+    # SCHRITT 5: Strategic Score + Gesamtscore
     df['Gesamtscore_Roh'] = np.nan
     df.loc[df['Vollständig'], 'Gesamtscore_Roh'] = df.loc[df['Vollständig'], 'Finanzscore'] * 0.9 + df.loc[df['Vollständig'], 'Strategic_Score'] * 0.1
     df['Gesamtscore'] = np.nan
@@ -306,7 +321,7 @@ def calculate_scores(df):
     return df
 
 def get_investment_rating(score):
-    if pd.isna(score): return np.nan # HARTE REGEL
+    if pd.isna(score): return np.nan
     if score >= 80: return "Strong Buy"
     elif score >= 65: return "Buy"
     elif score >= 45: return "Hold"
@@ -314,7 +329,7 @@ def get_investment_rating(score):
 
 def highlight_na(val):
     if pd.isna(val):
-        return 'background-color: #FFF9C4' # hellgelb
+        return 'background-color: #FFF9C4'
     return ''
 
 # ============================================
@@ -323,7 +338,7 @@ def highlight_na(val):
 def screen_sammeln():
     st.title(f"AI Infrastructure Ranking {VERSION}")
     fear_greed = get_fear_greed()
-    st.info(f"**Investment Thesis:** AI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed}")
+    st.info(f"**Investment Thesis:** AI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **Modus: Segment-Cluster Ranking**")
     st.subheader(f"Aktuelles Universum: {len(st.session_state.aktien_liste)} Werte")
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.dataframe(df_meta, use_container_width=True, hide_index=True)
@@ -348,8 +363,9 @@ def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0: st.session_state.modus = "ranking"; st.rerun(); return
     ticker, kpi = st.session_state.abfrage_queue[0]
     st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
+    st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
     eingabe = st.text_input("Wert eingeben")
-    col1,col2 = st.columns(2)
+    col1,col2,col3 = st.columns(3) # NEU: 3 Buttons
     with col1:
         if st.button("💾 Speichern"):
             wert = parse_number(eingabe)
@@ -360,6 +376,13 @@ def screen_abfrage():
         if st.button("⏭️ Überspringen"):
             save_kpi(ticker, kpi, np.nan, "Übersprungen")
             st.session_state.abfrage_queue.pop(0); st.rerun()
+    with col3: # NEU
+        if st.button("⏭️⏭️ Alle überspringen"):
+            for t, k in st.session_state.abfrage_queue:
+                save_kpi(t, k, np.nan, "Bulk Übersprungen")
+            st.session_state.abfrage_queue = []
+            st.session_state.modus = "ranking"
+            st.rerun()
 
 def screen_ranking():
     st.title(f"AI Infrastructure Ranking {VERSION}")
@@ -375,37 +398,34 @@ def screen_ranking():
     df = calculate_scores(df)
     df["Investment_Rating"] = df["Gesamtscore"].apply(get_investment_rating)
 
-    st.subheader("Ranking v7.38 KISS")
+    st.subheader("Ranking v7.40 - Segment Cluster Normalisiert")
+    small_segs = df[df['segment']!= df['segment_norm']]['segment'].unique()
+    if len(small_segs) > 0:
+        st.warning(f"Segmente mit <{MIN_SEGMENT_SIZE} Werten zusammengefasst zu 'Sonstige AI Infrastructure': {', '.join(small_segs)}")
     st.warning("Hinweis: Gesamtscore + Rating = N/A wenn 1 KPI fehlt")
 
-    show_cols = ['Rang','Ticker','name','flag','country','region','segment','index',
+    show_cols = ['Rang','Ticker','name','segment','segment_norm','flag','country',
                  'Aktueller_Kurs','Waehrung','Forward_KGV','EV_EBITDA','Umsatz_Wachstum',
                  'Bruttomarge','Operating_Margin','FCF_Marge',
-                 'Strategic_Score','Finanzscore','Datenpunkte','Datenqualität','Gesamtscore','Investment_Rating']
+                 'Strategic_Score','Finanzscore','Datenpunkte','Gesamtscore','Investment_Rating']
     show_cols = [c for c in show_cols if c in df.columns]
     df_show = df[show_cols].copy()
 
-    format_dict = {c: lambda x: "N/A" if pd.isna(x) else f"{x:.2f}" for c in PFLICHT_KPIS + ['Finanzscore','Gesamtscore','Datenqualität'] if c in df_show.columns}
+    format_dict = {c: lambda x: "N/A" if pd.isna(x) else f"{x:.2f}" for c in PFLICHT_KPIS + ['Finanzscore','Gesamtscore'] if c in df_show.columns}
     format_dict['Rang'] = lambda x: "N/A" if pd.isna(x) else f"{int(x)}"
     format_dict['Investment_Rating'] = lambda x: "N/A" if pd.isna(x) else x
+    format_dict['Datenpunkte'] = lambda x: f"{int(x)}/6"
 
     styled_df = df_show.style.map(highlight_na).format(format_dict)
     st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     output=io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Ranking_v7.38")
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.40")
         pd.DataFrame(STOCK_UNIVERSE).to_excel(writer, index=False, sheet_name="Universum")
-        df[['Ticker','name','Datenpunkte','Datenqualität','Vollständig']].to_excel(writer, index=False, sheet_name="Datenqualität")
-        audit_rows = []
-        for ticker, obj in st.session_state.datenbank.items():
-            for kpi, audit in obj["audit"].items():
-                audit_rows.append({"Ticker":ticker, "KPI":kpi, **audit})
-        pd.DataFrame(audit_rows).to_excel(writer, index=False, sheet_name="Audit")
+        df[['Ticker','name','segment','segment_norm','Datenpunkte','Datenqualität','Vollständig']].to_excel(writer, index=False, sheet_name="Datenqualität")
 
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.38_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 CSV herunterladen", csv, file_name=f"AI_Ranking_v7.38_{datetime.now().strftime('%Y-%m-%d')}.csv", use_container_width=True)
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.40_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START / ROUTING
