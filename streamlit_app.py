@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 # ============================================
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "AI2027": # <-- HIER DEIN PASSWORT
+        if st.session_state["password"] == "Dickie": # <-- HIER DEIN PASSWORT
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
