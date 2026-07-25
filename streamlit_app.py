@@ -1,5 +1,5 @@
 # ============================================
-# AI Infrastructure Ranking v7.45.3 BUGFIX YAHOO
+# AI Infrastructure Ranking v7.45.3 TEIL 1
 # ============================================
 
 import streamlit as st
@@ -13,6 +13,9 @@ import warnings
 import fear_and_greed
 warnings.filterwarnings("ignore")
 
+# ============================================
+# 0. LOGIN SCHUTZ
+# ============================================
 def check_password():
     def password_entered():
         if st.session_state["password"] == "Dicker":
@@ -31,6 +34,9 @@ st.set_page_config(page_title="AI Infrastructure Ranking v7.45.3", layout="wide"
 VERSION = "v7.45.3"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
+# ============================================
+# 1. SESSION STATE
+# ============================================
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
 for key, val in DEFAULTS.items():
     if key not in st.session_state: st.session_state[key] = val
@@ -38,6 +44,9 @@ if st.session_state.version_loaded!= VERSION:
     for key, val in DEFAULTS.items(): st.session_state[key] = val
     st.session_state.version_loaded = VERSION
 
+# ============================================
+# 2. STOCK_UNIVERSE - 58 WERTE
+# ============================================
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
 {"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
@@ -107,9 +116,13 @@ WEIGHTS = {
     "Empfänger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
     "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
+}
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
 
+# ============================================
+# 3. HELPER + YAHOO LOADER BUGFIX
+# ============================================
 @st.cache_data(ttl=1800)
 def get_fear_greed():
     try: return round(fear_and_greed.get().value)
@@ -131,20 +144,15 @@ def save_kpi(ticker,kpi,value,quelle):
     obj["daten"][kpi]=value
     obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
 
-# BUGFIX v7.45.3: Robuster Loader für internationale Ticker
 @st.cache_data(ttl=3600, show_spinner=False)
 def yahoo_laden(ticker):
     result = {}
     try:
-        # Internationale brauchen mehr Zeit
         if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']):
             time.sleep(1.5)
         else:
             time.sleep(0.8)
-
         tk = yf.Ticker(ticker)
-
-        # Einzeln abfragen, nicht tk.info Block
         result["Aktueller_Kurs"] = safe_get(tk.info, "currentPrice") or safe_get(tk.info, "regularMarketPrice")
         result["Waehrung"] = safe_get(tk.info, "currency")
         result["Forward_KGV"] = safe_get(tk.info, "forwardPE")
@@ -152,21 +160,17 @@ def yahoo_laden(ticker):
         result["Umsatz_Wachstum"] = safe_get(tk.info, "revenueGrowth")
         result["Bruttomarge"] = safe_get(tk.info, "grossMargins")
         result["Operating_Margin"] = safe_get(tk.info, "operatingMargins")
-
-        # Financials separat
         fin = tk.financials; cf = tk.cashflow
         fcf = safe_get(tk.info,"freeCashflow"); revenue = safe_get(tk.info,"totalRevenue")
         if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0,0]
         if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
         result["FCF_Marge"] = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0 else np.nan
-
         if pd.isna(result["Bruttomarge"]) and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
             try: result["Bruttomarge"] = fin.loc['Gross Profit'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
             except: pass
         if pd.isna(result["Operating_Margin"]) and not fin.empty and 'Operating Income' in fin.index and 'Total Revenue' in fin.index:
             try: result["Operating_Margin"] = fin.loc['Operating Income'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
             except: pass
-
         return result
     except Exception as e:
         st.warning(f"Yahoo Fehler bei {ticker}: {str(e)[:50]}")
@@ -220,8 +224,7 @@ def calculate_scores(df):
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-
-def get_investment_rating(score, vollständig):
+    def get_investment_rating(score, vollständig):
     if pd.isna(score): return "N/A"
     if not vollständig: return "N/A - Daten fehlen"
     if score >= 80: return "Strong Buy"
@@ -299,6 +302,9 @@ def screen_ranking():
     st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.45.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
+# ============================================
+# 6. APP START
+# ============================================
 if st.session_state.modus == "sammeln": screen_sammeln()
 elif st.session_state.modus == "abfrage": screen_abfrage()
 elif st.session_state.modus == "ranking": screen_ranking()
