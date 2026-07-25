@@ -224,13 +224,14 @@ def calculate_scores(df):
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-    def get_investment_rating(score, vollständig):
+  def get_investment_rating(score, vollständig):
     if pd.isna(score): return "N/A"
     if not vollständig: return "N/A - Daten fehlen"
     if score >= 80: return "Strong Buy"
     elif score >= 65: return "Buy"
     elif score >= 45: return "Hold"
     else: return "Sell"
+
 def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
 
