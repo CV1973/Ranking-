@@ -23,8 +23,8 @@ def check_password():
     else: return True
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.7", layout="wide")
-VERSION = "v7.45.7"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.45.8", layout="wide")
+VERSION = "v7.45.8"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFAENGER GEWINNEN"
 
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
@@ -37,64 +37,18 @@ if st.session_state.version_loaded!= VERSION:
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
 {"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"MRVL", "name":"Marvell", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"ARM", "name":"Arm Holdings", "country":"UK", "flag":"🇬🇧", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
 {"ticker":"A000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
 {"ticker":"A005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"4449.T", "name":"Kioxia", "country":"Japan", "flag":"🇯🇵", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"ASML", "name":"ASML", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"AMAT", "name":"Applied Materials", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"LRCX", "name":"Lam Research", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"KLAC", "name":"KLA", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"8035.T", "name":"Tokyo Electron", "country":"Japan", "flag":"🇯🇵", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"ASMI.AS", "name":"ASM International", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"VATN.SW", "name":"VAT Group", "country":"Switzerland", "flag":"🇨🇭", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"6857.T", "name":"Advantest", "country":"Japan", "flag":"🇯🇵", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"TER", "name":"Teradyne", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"TSM", "name":"TSMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
-{"ticker":"GFS", "name":"GlobalFoundries", "country":"USA", "flag":"🇺🇸", "segment":"Foundry", "typ":"Empfaenger"},
 {"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
-{"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
-{"ticker":"SMCI", "name":"Super Micro Computer", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
 {"ticker":"2353.TWO", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
 {"ticker":"2392.TWO", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
+{"ticker":"ASMI.AS", "name":"ASM International", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
 {"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"ETN", "name":"Eaton", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"VRT", "name":"Vertiv", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"SIE.DE", "name":"Siemens", "country":"Germany", "flag":"🇩🇪", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"ENR.DE", "name":"Siemens Energy", "country":"Germany", "flag":"🇩🇪", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"ABBN.SW", "name":"ABB", "country":"Switzerland", "flag":"🇨🇭", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"BE", "name":"Bloom Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"GEV", "name":"GE Vernova", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"CEG", "name":"Constellation Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"TXN", "name":"Texas Instruments", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
-{"ticker":"ANET", "name":"Arista Networks", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"CRDO", "name":"Credo", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"COHR", "name":"Coherent", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"LITE", "name":"Lumentum", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
 {"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"CSCO", "name":"Cisco", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"NOK", "name":"Nokia", "country":"Finland", "flag":"🇫🇮", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
 {"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
 {"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"GOOGL", "name":"Alphabet", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"META", "name":"Meta", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"ORCL", "name":"Oracle", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"NOW", "name":"ServiceNow", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"EQIX", "name":"Equinix", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"DLR", "name":"Digital Realty", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"IFNNY", "name":"Infineon ADR", "country":"Germany", "flag":"🇩🇪", "segment":"Automotive Semiconductor", "typ":"Neutral"},
-{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
-{"ticker":"PLTR", "name":"Palantir", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
-{"ticker":"CCJ", "name":"Cameco", "country":"Canada", "flag":"🇨🇦", "segment":"Nuclear Energy Supply", "typ":"Neutral"},
-{"ticker":"BWXT", "name":"BWX Technologies", "country":"USA", "flag":"🇺🇸", "segment":"Nuclear Technology", "typ":"Neutral"},
-{"ticker":"MUFG", "name":"MUFG", "country":"Japan", "flag":"🇯🇵", "segment":"AI Infrastructure Financing", "typ":"Neutral"},
 ]
 
 if len(st.session_state.aktien_liste) == 0: st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
@@ -103,6 +57,8 @@ WEIGHTS = {
     "Empfaenger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
     "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
+} # <-- HIER FEHLTE DIE KLAMMER
+
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
 
@@ -110,9 +66,6 @@ KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachst
 def get_fear_greed():
     try: return round(fear_and_greed.get().value)
     except: return 50
-def safe_get(info, key):
-    try: value = info.get(key); return np.nan if value is None else value
-    except: return np.nan
 def parse_number(text):
     if text is None: return np.nan
     text = str(text).strip().replace(",", ".")
