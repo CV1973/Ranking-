@@ -19,9 +19,10 @@ warnings.filterwarnings("ignore")
 # ============================================
 # 0. LOGIN SCHUTZ v7.37
 # ============================================
+
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "AI2027": # <-- HIER DEIN PASSWORT
+        if st.session_state["password"] == "Dicker": # <-- HIER DEIN PASSWORT
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
