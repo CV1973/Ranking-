@@ -4,210 +4,155 @@ import pandas as pd
 import numpy as np
 import time
 from datetime import datetime
-import io
 import warnings
-import fear_and_greed
 warnings.filterwarnings("ignore")
 
-def check_password():
-    def password_entered():
-        if st.session_state["password"] == "Dicker":
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else: st.session_state["password_correct"] = False
-    if "password_correct" not in st.session_state:
-        st.text_input("Passwort", type="password", on_change=password_entered, key="password"); st.stop()
-    elif not st.session_state["password_correct"]:
-        st.text_input("Passwort", type="password", on_change=password_entered, key="password")
-        st.error("😞 Passwort falsch"); st.stop()
-    else: return True
-check_password()
+st.set_page_config(page_title="AI Ranking US-ONLY v7.45.27", layout="wide")
+st.title("🚀 AI Infrastructure Ranking v7.45.27-US ONLY")
+st.caption("37 US Listings + ADRs aus ehemals 60 Werten | Daten: Yahoo Finance")
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.17-US", layout="wide")
-VERSION = "v7.45.17-US"
-AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFAENGER GEWINNEN"
-
-DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
-for key, val in DEFAULTS.items():
-    if key not in st.session_state: st.session_state[key] = val
-if st.session_state.version_loaded!= VERSION:
-    for key, val in DEFAULTS.items(): st.session_state[key] = val
-    st.session_state.version_loaded = VERSION
-
-# US ONLY + ADRs
-STOCK_UNIVERSE = [
-{"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
-{"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute / Networking", "typ":"Empfaenger"},
-{"ticker":"TSM", "name":"TSMC ADR", "country":"USA", "flag":"🇺🇸", "segment":"Foundry", "typ":"Empfaenger"},
-{"ticker":"ASML", "name":"ASML ADR", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"AMAT", "name":"Applied Materials", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"LRCX", "name":"Lam Research", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
-{"ticker":"SMCI", "name":"Super Micro", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
-{"ticker":"SNOW", "name":"Snowflake", "country":"USA", "flag":"🇺🇸", "segment":"AI Data Platform", "typ":"Neutral"},
+# === ALLE 37 US/ADR WERTE ===
+STOCKS = [
+# 1. AI Compute + Big Tech + Storage
+{"t":"NVDA","name":"Nvidia","typ":"Empfaenger","sektor":"Chips"},
+{"t":"AMD","name":"AMD","typ":"Empfaenger","sektor":"Chips"},
+{"t":"AVGO","name":"Broadcom","typ":"Empfaenger","sektor":"Chips"},
+{"t":"INTC","name":"Intel","typ":"Empfaenger","sektor":"Chips"},
+{"t":"QCOM","name":"Qualcomm","typ":"Empfaenger","sektor":"Chips"},
+{"t":"MU","name":"Micron","typ":"Empfaenger","sektor":"Memory"},
+{"t":"SNDK","name":"Sandisk","typ":"Empfaenger","sektor":"Storage"},
+{"t":"WDC","name":"Western Digital","typ":"Empfaenger","sektor":"Storage"},
+{"t":"MSFT","name":"Microsoft","typ":"Spender","sektor":"Hyperscaler"},
+{"t":"GOOGL","name":"Alphabet","typ":"Spender","sektor":"Hyperscaler"},
+{"t":"AMZN","name":"Amazon","typ":"Spender","sektor":"Hyperscaler"},
+{"t":"META","name":"Meta","typ":"Spender","sektor":"Hyperscaler"},
+{"t":"AAPL","name":"Apple","typ":"Spender","sektor":"Device"},
+{"t":"ORCL","name":"Oracle","typ":"Spender","sektor":"Cloud"},
+{"t":"IBM","name":"IBM","typ":"Spender","sektor":"Enterprise"},
+# 2. Semi Equipment
+{"t":"ASML","name":"ASML ADR","typ":"Empfaenger","sektor":"Equipment"},
+{"t":"AMAT","name":"Applied Materials","typ":"Empfaenger","sektor":"Equipment"},
+{"t":"LRCX","name":"Lam Research","typ":"Empfaenger","sektor":"Equipment"},
+{"t":"KLAC","name":"KLA Corp","typ":"Empfaenger","sektor":"Equipment"},
+{"t":"ADI","name":"Analog Devices","typ":"Empfaenger","sektor":"Chips"},
+{"t":"TXN","name":"Texas Instruments","typ":"Empfaenger","sektor":"Chips"},
+{"t":"MCHP","name":"Microchip","typ":"Empfaenger","sektor":"Chips"},
+# 3. Foundry + Memory ADR
+{"t":"TSM","name":"TSMC ADR","typ":"Empfaenger","sektor":"Foundry"},
+{"t":"SKHYY","name":"SK Hynix ADR","typ":"Empfaenger","sektor":"Memory"},
+# 4. Server / DC / Networking
+{"t":"DELL","name":"Dell","typ":"Empfaenger","sektor":"Server"},
+{"t":"SMCI","name":"Super Micro","typ":"Empfaenger","sektor":"Server"},
+{"t":"ANET","name":"Arista Networks","typ":"Empfaenger","sektor":"Network"},
+{"t":"CSCO","name":"Cisco","typ":"Empfaenger","sektor":"Network"},
+{"t":"HPQ","name":"HP","typ":"Empfaenger","sektor":"Server"},
+# 5. Power / Cooling / Infrastructure
+{"t":"PWR","name":"Quanta Services","typ":"Empfaenger","sektor":"Infrastructure"},
+{"t":"ETN","name":"Eaton","typ":"Empfaenger","sektor":"Power"},
+{"t":"JCI","name":"Johnson Controls","typ":"Empfaenger","sektor":"Cooling"},
+# 6. Software / Data / AI
+{"t":"ANSS","name":"Ansys","typ":"Neutral","sektor":"Software"},
+{"t":"SNOW","name":"Snowflake","typ":"Neutral","sektor":"Data"},
+{"t":"PLTR","name":"Palantir","typ":"Neutral","sektor":"AI"},
+{"t":"CRWD","name":"CrowdStrike","typ":"Neutral","sektor":"Security"},
+{"t":"MDB","name":"MongoDB","typ":"Neutral","sektor":"Data"},
+{"t":"DDOG","name":"Datadog","typ":"Neutral","sektor":"Monitoring"},
+{"t":"NET","name":"Cloudflare","typ":"Neutral","sektor":"CDN"},
+{"t":"PANW","name":"Palo Alto","typ":"Neutral","sektor":"Security"},
 ]
 
-if len(st.session_state.aktien_liste) == 0: st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
-CAPEX_BIAS = {"Empfaenger": 10, "Spender": -10, "Neutral": 0}
+# === SCORING LOGIK ===
+BIAS = {"Empfaenger": 10, "Spender": -10, "Neutral": 0}
 WEIGHTS = {
-    "Empfaenger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
-    "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
-    "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
-}
+    "Empfaenger": {'KGV':0.10, 'EV':0.05, 'Wachstum':0.30, 'Brutto':0.10, 'OpM':0.30, 'FCF':0.05},
+    "Spender": {'KGV':0.15, 'EV':0.10, 'Wachstum':0.05, 'Brutto':0.15, 'OpM':0.30, 'FCF':0.25},
+    "Neutral": {'KGV':0.15, 'EV':0.15, 'Wachstum':0.15, 'Brutto':0.15, 'OpM':0.20, 'FCF':0.20}
+KPIS = ['KGV','EV','Wachstum','Brutto','OpM','FCF','MarketCap']
 
-PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
-KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
-
-@st.cache_data(ttl=1800)
-def get_fear_greed():
-    try: return round(fear_and_greed.get().value)
-    except: return 50
-def parse_number(text):
-    if text is None: return np.nan
-    text = str(text).strip().replace(",", ".")
-    try: return float(text)
-    except: return np.nan
-def init_ticker(ticker):
-    if ticker not in st.session_state.datenbank:
-        meta = next((s for s in STOCK_UNIVERSE if s["ticker"]==ticker), {"ticker":ticker,"name":ticker})
-        st.session_state.datenbank[ticker] = {"daten":{"Ticker":ticker, **meta},"audit":{},"status":"neu"}
-def save_kpi(ticker,kpi,value,quelle):
-    obj = st.session_state.datenbank[ticker]
-    obj["daten"][kpi]=value
-    obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
-
-def yahoo_laden(ticker):
-    result = {k: np.nan for k in ["Aktueller_Kurs","Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]}
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_data(ticker):
+    """Lädt KPIs von Yahoo Finance"""
     try:
         tk = yf.Ticker(ticker)
-        time.sleep(1) # 1s Delay reicht bei US
-        info = tk.info
-        result["Aktueller_Kurs"] = info.get("currentPrice") or info.get("regularMarketPrice", np.nan)
-        result["Forward_KGV"] = info.get("forwardPE", np.nan)
-        result["EV_EBITDA"] = info.get("enterpriseToEbitda", np.nan)
-        result["Umsatz_Wachstum"] = info.get("revenueGrowth", np.nan)
-        result["Bruttomarge"] = info.get("grossMargins", np.nan)
-        result["Operating_Margin"] = info.get("operatingMargins", np.nan)
-        fcf = info.get("freeCashflow", np.nan); revenue = info.get("totalRevenue", np.nan)
-        if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0: result["FCF_Marge"] = fcf / revenue
-        return result
-    except: return None
+        time.sleep(0.8) # Gegen Rate Limit
+        i = tk.info
+        revenue = i.get("totalRevenue")
+        fcf = i.get("freeCashflow")
+        return {
+            'Kurs': i.get("currentPrice") or i.get("regularMarketPrice"),
+            'KGV': i.get("forwardPE"),
+            'EV': i.get("enterpriseToEbitda"),
+            'Wachstum': i.get("revenueGrowth"),
+            'Brutto': i.get("grossMargins"),
+            'OpM': i.get("operatingMargins"),
+            'FCF': fcf/revenue if revenue and fcf and revenue > 0 else np.nan,
+            'MarketCap': i.get("marketCap")
+        }
+    except:
+        return {k:np.nan for k in ['Kurs']+KPIS}
 
-def fehlende_kpis(ticker):
-    daten = st.session_state.datenbank[ticker]["daten"]
-    return [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi,np.nan))]
+def norm(s, invert=False):
+    """Normalisiert 0-1. invert=True = niedriger ist besser"""
+    x = pd.to_numeric(s, errors="coerce")
+    if invert: x = -x
+    valid = x.dropna()
+    if len(valid) <= 1: return pd.Series(np.nan, index=x.index)
+    return x.rank(pct=True, method="average")
 
-def baue_abfrage_queue():
-    queue = []
-    progress = st.progress(0)
-    status_text = st.empty()
-    for i, ticker in enumerate(st.session_state.aktien_liste):
-        init_ticker(ticker); obj = st.session_state.datenbank[ticker]
-        status_text.text(f"Lade Kurs {i+1}/{len(st.session_state.aktien_liste)}: {ticker}")
-        if obj["status"] == "neu":
-            daten = yahoo_laden(ticker)
-            if daten:
-                for kpi, wert in daten.items():
-                    if not pd.isna(wert): save_kpi(ticker, kpi, wert, "Yahoo")
-            obj["status"] = "geladen"
-        progress.progress((i+1)/len(st.session_state.aktien_liste))
-        for kpi in fehlende_kpis(ticker): queue.append((ticker, kpi))
-    status_text.empty()
-    st.session_state.abfrage_queue = queue
+# === UI ===
+st.sidebar.header("Filter")
+typ_filter = st.sidebar.multiselect("Typ", ["Empfaenger","Spender","Neutral"], default=["Empfaenger","Spender","Neutral"])
 
-def normalize_global(df, col, higher_better=True):
-    s = pd.to_numeric(df[col], errors="coerce")
-    valid = s.dropna()
-    if len(valid) < 2: return pd.Series(np.nan, index=s.index)
-    x = s.copy()
-    if not higher_better: x = -x
-    return x.rank(pct=True)
+if st.button("✅ Ranking starten", type="primary"):
+    data = []
+    prog = st.progress(0)
+    status = st.empty()
 
-def calculate_scores(df):
-    df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
-    df['Vollstaendig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
-    df['Datenqualitaet'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
-    df['Capex_Bias'] = df['typ'].map(CAPEX_BIAS)
-    for col in PFLICHT_KPIS:
-        lower_better = col in ['Forward_KGV','EV_EBITDA']
-        df[f'Norm_{col}'] = normalize_global(df, col, not lower_better)
-    df['Finanzscore'] = 0.0
+    for idx, s in enumerate(STOCKS):
+        status.text(f"Lade {idx+1}/{len(STOCKS)}: {s['t']} - {s['name']}")
+        d = load_data(s['t'])
+        data.append({"Ticker":s['t'], "Name":s['name'], "Typ":s['typ'], "Sektor":s['sektor'], **d})
+        prog.progress((idx+1)/len(STOCKS))
+
+    status.text("Berechne Scores...")
+    df = pd.DataFrame(data)
+    df = df[df['Typ'].isin(typ_filter)]
+    df['Bias'] = df['Typ'].map(BIAS)
+    df['Daten'] = df[KPIS].notna().sum(axis=1) / len(KPIS)
+
+    # Normalisierung
+    for k in KPIS:
+        df[f'N_{k}'] = norm(df[k], invert=k in ['KGV','EV','MarketCap'])
+
+    # Score
+    df['Score'] = 0.0
     for idx, row in df.iterrows():
-        weights = WEIGHTS[row['typ']]
-        score = 0
-        for col, w in weights.items():
-            norm_val = row[f'Norm_{col}']
-            if not pd.isna(norm_val): score += norm_val * w
-        df.at[idx, 'Finanzscore'] = score * 100
-    df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9
-    df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualitaet']) + df['Capex_Bias']).round(1)
-    df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
-    df["Rang"] = df.index + 1
-    return df
+        w = WEIGHTS[row['Typ']]
+        score = sum(row[f'N_{k}']*w[k] for k in ['KGV','EV','Wachstum','Brutto','OpM','FCF'] if not pd.isna(row[f'N_{k}']))
+        df.at[idx,'Score'] = score * 100
 
-def get_investment_rating(score, vollstaendig):
-    if pd.isna(score): return "N/A"
-    if not vollstaendig: return "N/A - Daten fehlen"
-    if score >= 80: return "Strong Buy"
-    elif score >= 65: return "Buy"
-    elif score >= 45: return "Hold"
-    else: return "Sell"
+    # Gesamt
+    df['Gesamt'] = (df['Score'] * 0.9 * (0.3 + 0.7 * df['Daten']) + df['Bias']).round(1)
+    df = df.sort_values('Gesamt', ascending=False).reset_index(drop=True)
+    df['Rang'] = df.index + 1
 
-def highlight_na(val):
-    return 'background-color: #FFF9C4' if pd.isna(val) else ''
+    status.empty()
+    st.success(f"✅ Fertig. {len(df)} Werte geladen um {datetime.now().strftime('%H:%M:%S')}")
 
-def screen_sammeln():
-    st.title(f"AI Infrastructure Ranking {VERSION}")
-    st.success("US ONLY MODE - Yahoo läuft stabil")
-    fear_greed = get_fear_greed()
-    st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed}")
-    df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
-    st.table(df_meta[['ticker','name','flag','segment','typ']])
-    if st.button("✅ Auswertung starten", type="primary"):
-        with st.spinner("Lade US Daten..."):
-            baue_abfrage_queue()
-        st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
-        st.rerun()
+    # Tabelle
+    cols_to_show = ['Rang','Ticker','Name','Typ','Sektor','Gesamt','Bias','Daten','Kurs','MarketCap'] + ['KGV','EV','Wachstum','Brutto','OpM','FCF']
+    st.dataframe(
+        df[cols_to_show].style.format({
+            'Kurs':'${:.2f}', 'Gesamt':'{:.1f}', 'Bias':'{:.0f}', 'Daten':'{:.0%}',
+            'KGV':'{:.1f}', 'EV':'{:.1f}', 'MarketCap':'${:,.0f}',
+            'Wachstum':'{:.1%}', 'Brutto':'{:.1%}', 'OpM':'{:.1%}', 'FCF':'{:.1%}'
+        }).background_gradient(subset=['Gesamt'], cmap='RdYlGn'),
+        use_container_width=True, height=650
+    )
 
-def screen_abfrage():
-    if len(st.session_state.abfrage_queue) == 0:
-        st.session_state.modus = "ranking"
-        st.rerun()
-        return
-    ticker, kpi = st.session_state.abfrage_queue[0]
-    st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
-    eingabe = st.text_input("Wert eingeben")
-    col1,col2,col3 = st.columns(3)
-    with col1:
-        if st.button("💾 Speichern"):
-            wert = parse_number(eingabe)
-            if pd.isna(wert): st.error("Keine gueltige Zahl"); return
-            save_kpi(ticker, kpi, wert, "Manuell")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
-    with col2:
-        if st.button("⏭️ Ueberspringen"):
-            save_kpi(ticker, kpi, np.nan, "Uebersprungen")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
-    with col3:
-        if st.button("⏭️⏭️ Alle ueberspringen"):
-            for t, k in st.session_state.abfrage_queue: save_kpi(t, k, np.nan, "Bulk")
-            st.session_state.abfrage_queue = []; st.session_state.modus = "ranking"; st.rerun()
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 CSV Download", csv, f"ai_ranking_us_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
 
-def screen_ranking():
-    st.title(f"AI Infrastructure Ranking {VERSION}")
-    liste=[st.session_state.datenbank[ticker]["daten"] for ticker in st.session_state.aktien_liste]
-    df=pd.DataFrame(liste)
-    if len(df)<2: st.error("Zu wenige Aktien"); return
-    df = calculate_scores(df)
-    df["Investment_Rating"] = df.apply(lambda x: get_investment_rating(x["Gesamtscore"], x["Vollstaendig"]), axis=1)
-    st.subheader("Globales Ranking")
-    show_cols = ['Rang','Ticker','name','flag','typ','Capex_Bias','Gesamtscore','Investment_Rating'] + PFLICHT_KPIS
-    df_show = df[show_cols]
-    st.table(df_show.style.map(highlight_na))
-
-if st.session_state.modus == "sammeln": screen_sammeln()
-elif st.session_state.modus == "abfrage": screen_abfrage()
-elif st.session_state.modus == "ranking": screen_ranking()
+else:
+    st.info(f"{len(STOCKS)} US/ADR Werte bereit. NVDA, MU, SNDK, TSM, ASML enthalten.")
+    st.warning("Klick auf 'Ranking starten' um Daten zu laden. Dauert ~30 Sekunden wegen Yahoo Rate Limit.")
