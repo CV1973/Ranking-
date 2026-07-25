@@ -1,6 +1,7 @@
 # ============================================
 # AI Infrastructure Ranking v7.37 KISS FINAL
-# 6 KPIs + Strategic | v7.36 Engine - 4 Punkte KISS
+# 6 KPIs + Strategic | Engine: v7.36 abgespeckt
+# Letzte Aenderung: Performance_52W, _info, _financials, NAMEN, Strategischer_Aufschlag entfernt
 # ============================================
 
 import streamlit as st
@@ -18,6 +19,9 @@ st.set_page_config(page_title="AI Infrastructure Ranking v7.37", layout="wide")
 VERSION = "v7.37"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
+# ============================================
+# 1. SESSION STATE
+# ============================================
 DEFAULTS = {
     "aktien_liste": [],
     "datenbank": {},
@@ -35,6 +39,9 @@ if st.session_state.version_loaded!= VERSION:
         st.session_state[key] = val
     st.session_state.version_loaded = VERSION
 
+# ============================================
+# 2. STOCK_UNIVERSE v7.37 - 62 WERTE
+# ============================================
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
 {"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
@@ -101,8 +108,6 @@ STOCK_UNIVERSE = [
 if len(st.session_state.aktien_liste) == 0:
     st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
 
-# 3. NAMEN ENTFERNT
-
 SEGMENT_SCORE = {
     "AI Compute": 90, "Memory / HBM": 88, "Semi Equipment": 85, "Foundry": 85,
     "Networking / Optical": 80, "Server / DC Hardware": 82, "Power / Cooling": 78,
@@ -111,6 +116,9 @@ SEGMENT_SCORE = {
     "AI Infrastructure Software": 83
 }
 
+# ============================================
+# 3. PFLICHT_KPIS v7.37 KISS - 6 KPIs
+# ============================================
 PFLICHT_KPIS = [
     "Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge",
     "Operating_Margin","FCF_Marge"
@@ -128,6 +136,9 @@ WEIGHTS = {
     'Strategic_Score':0.10
 }
 
+# ============================================
+# 4. HELPER FUNKTIONEN
+# ============================================
 @st.cache_data(ttl=3600)
 def get_fear_greed():
     try:
@@ -179,7 +190,6 @@ def yahoo_laden(ticker):
         brutto = safe_get(info, "grossMargins")
         op_marge = safe_get(info, "operatingMargins")
 
-        # 1. PERFORMANCE_52W ENTFERNT
         fcf = safe_get(info,"freeCashflow")
         revenue = safe_get(info,"totalRevenue")
         if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0:
@@ -187,7 +197,6 @@ def yahoo_laden(ticker):
         else:
             fcf_marge = np.nan
 
-        # 2. KEIN _info _financials mehr
         return {
             "Aktueller_Kurs": price, "Waehrung": currency,
             "Forward_KGV":forward_kgv,"EV_EBITDA":ev_ebitda,"Umsatz_Wachstum":umsatz_wachstum,
@@ -219,6 +228,9 @@ def baue_abfrage_queue():
             queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
+# ============================================
+# 5. SCORING ENGINE v7.37 KISS
+# ============================================
 def normalize(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce")
     valid = s.dropna()
@@ -240,19 +252,26 @@ def calculate_scores(df):
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
 
-    # 4. STRATEGISCHER_AUFSCHLAG ENTFERNT
     df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9 + df['Strategic_Score'] * 0.1
     df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität'])).round(1)
 
     df = df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-    def get_investment_rating(score):
-    if score >= 80: return "Strong Buy"
-    elif score >= 65: return "Buy"
-    elif score >= 45: return "Hold"
-    else: return "Sell"
 
+def get_investment_rating(score):
+    if score >= 80:
+        return "Strong Buy"
+    elif score >= 65:
+        return "Buy"
+    elif score >= 45:
+        return "Hold"
+    else:
+        return "Sell"
+
+# ============================================
+# 6. SCREENS
+# ============================================
 def screen_sammeln():
     st.title(f"AI Infrastructure Ranking {VERSION}")
     fear_greed = get_fear_greed()
@@ -305,7 +324,6 @@ def screen_ranking():
     df["Investment_Rating"] = df["Gesamtscore"].apply(get_investment_rating)
 
     st.subheader("Ranking v7.37 KISS")
-    # 4. STRATEGISCHER_AUFSCHLAG AUS ANZEIGE ENTFERNT
     show_cols = ['Rang','Ticker','name','flag','country','region','segment','index',
                  'Aktueller_Kurs','Waehrung','Forward_KGV','EV_EBITDA','Umsatz_Wachstum',
                  'Bruttomarge','Operating_Margin','FCF_Marge',
@@ -329,6 +347,7 @@ def screen_ranking():
     st.download_button("📥 CSV herunterladen", csv, file_name=f"AI_Ranking_v7.37_{datetime.now().strftime('%Y-%m-%d')}.csv", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
+# APP START / ROUTING
 if st.session_state.modus == "sammeln": screen_sammeln()
 elif st.session_state.modus == "uebersicht": screen_uebersicht()
 elif st.session_state.modus == "abfrage": screen_abfrage()
