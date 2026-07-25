@@ -285,14 +285,14 @@ def calculate_scores(df):
     return df
 
 def get_investment_rating(score):
-    if score >= 80:
-        return "Strong Buy"
-    elif score >= 65:
-        return "Buy"
-    elif score >= 45:
-        return "Hold"
-    else:
-        return "Sell"
+    if score >= 80: return "Strong Buy"
+    elif score >= 65: return "Buy"
+    elif score >= 45: return "Hold"
+    else: return "Sell"
+
+# Styling Funktion für N/A
+def highlight_na(s):
+    return ['background-color: #FFF9C4' if pd.isna(v) else '' for v in s]
 
 # ============================================
 # 6. SCREENS
@@ -308,7 +308,8 @@ def screen_sammeln():
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
         with st.spinner("Lade Yahoo Daten..."):
             baue_abfrage_queue()
-        st.session_state.modus = "uebersicht"; st.rerun()
+        # FIX 1: Direkt ins Ranking springen
+        st.session_state.modus = "ranking"; st.rerun()
 
 def screen_uebersicht():
     st.title(f"AI Infrastructure Ranking {VERSION}")
@@ -354,7 +355,18 @@ def screen_ranking():
                  'Bruttomarge','Operating_Margin','FCF_Marge',
                  'Strategic_Score','Finanzscore','Datenqualität','Gesamtscore','Investment_Rating']
     show_cols = [c for c in show_cols if c in df.columns]
-    st.dataframe(df[show_cols].round(2), use_container_width=True, hide_index=True)
+    df_show = df[show_cols].copy()
+
+    # FIX 2: NaN durch "N/A" ersetzen und hellgelb markieren
+    for col in PFLICHT_KPIS:
+        if col in df_show.columns:
+            df_show[col] = df_show[col].apply(lambda x: "N/A" if pd.isna(x) else round(x, 2))
+
+    st.dataframe(
+        df_show.style.apply(highlight_na, subset=PFLICHT_KPIS),
+        use_container_width=True,
+        hide_index=True
+    )
 
     output=io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
