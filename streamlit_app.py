@@ -23,8 +23,8 @@ def check_password():
     else: return True
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.10", layout="wide")
-VERSION = "v7.45.10"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.45.14-TEST", layout="wide")
+VERSION = "v7.45.14-TEST"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFAENGER GEWINNEN"
 
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
@@ -78,36 +78,29 @@ def save_kpi(ticker,kpi,value,quelle):
     obj["daten"][kpi]=value
     obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
 
-def yahoo_laden(ticker, retry=3): # KEIN CACHE
+def yahoo_laden_test(ticker): # OHNE DELAY + MIT DEBUG
     result = {k: np.nan for k in ["Aktueller_Kurs","Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]}
-    delay = 8.0 if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']) else 2.0
+    try:
+        tk = yf.Ticker(ticker)
+        info = tk.info # KEIN DELAY
 
-    for attempt in range(retry):
-        try:
-            time.sleep(delay)
-            tk = yf.Ticker(ticker)
+        # DEBUG OUTPUT
+        st.write(f"**DEBUG {ticker}**: info hat {len(info)} keys")
+        if len(info) == 0:
+            st.error(f"BLOCKIERT: {ticker} gibt {{}} zurück")
 
-            result["Aktueller_Kurs"] = tk.info.get("currentPrice") or tk.info.get("regularMarketPrice", np.nan)
-            time.sleep(0.5)
-            result["Forward_KGV"] = tk.info.get("forwardPE", np.nan)
-            time.sleep(0.5)
-            result["EV_EBITDA"] = tk.info.get("enterpriseToEbitda", np.nan)
-            time.sleep(0.5)
-            result["Umsatz_Wachstum"] = tk.info.get("revenueGrowth", np.nan)
-            time.sleep(0.5)
-            result["Bruttomarge"] = tk.info.get("grossMargins", np.nan)
-            time.sleep(0.5)
-            result["Operating_Margin"] = tk.info.get("operatingMargins", np.nan)
-            time.sleep(0.5)
-
-            fcf = tk.info.get("freeCashflow", np.nan); revenue = tk.info.get("totalRevenue", np.nan)
-            if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0: result["FCF_Marge"] = fcf / revenue
-
-            if not all(pd.isna(v) for v in result.values()):
-                return result
-        except:
-            time.sleep(10)
-    return None
+        result["Aktueller_Kurs"] = info.get("currentPrice") or info.get("regularMarketPrice", np.nan)
+        result["Forward_KGV"] = info.get("forwardPE", np.nan)
+        result["EV_EBITDA"] = info.get("enterpriseToEbitda", np.nan)
+        result["Umsatz_Wachstum"] = info.get("revenueGrowth", np.nan)
+        result["Bruttomarge"] = info.get("grossMargins", np.nan)
+        result["Operating_Margin"] = info.get("operatingMargins", np.nan)
+        fcf = info.get("freeCashflow", np.nan); revenue = info.get("totalRevenue", np.nan)
+        if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0: result["FCF_Marge"] = fcf / revenue
+        return result
+    except Exception as e:
+        st.error(f"EXCEPTION bei {ticker}: {e}")
+        return None
 
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
@@ -119,9 +112,10 @@ def baue_abfrage_queue():
     status_text = st.empty()
     for i, ticker in enumerate(st.session_state.aktien_liste):
         init_ticker(ticker); obj = st.session_state.datenbank[ticker]
-        status_text.text(f"Lade {i+1}/{len(st.session_state.aktien_liste)}: {ticker}")
+        status_text.text(f"Teste {i+1}/{len(st.session_state.aktien_liste)}: {ticker}")
+
         if obj["status"] == "neu":
-            daten = yahoo_laden(ticker)
+            daten = yahoo_laden_test(ticker) # TEST FUNKTION
             if daten:
                 for kpi, wert in daten.items():
                     if not pd.isna(wert): save_kpi(ticker, kpi, wert, "Yahoo")
@@ -173,13 +167,14 @@ def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
 
 def screen_sammeln():
-    st.title(f"AI Infrastructure Ranking {VERSION}")
+    st.title(f"AI Infrastructure Ranking {VERSION} - BLOCK TEST")
+    st.error("ACHTUNG: Kein Delay. Wir provozieren den Block.")
     fear_greed = get_fear_greed()
     st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed}")
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.table(df_meta[['ticker','name','flag','segment','typ']])
-    if st.button("✅ Auswertung starten", type="primary"):
-        with st.spinner("Lade Yahoo Daten... 8s Delay fuer Asien/EU"):
+    if st.button("✅ TEST STARTEN", type="primary"):
+        with st.spinner("Teste Yahoo ohne Delay..."):
             baue_abfrage_queue()
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
@@ -219,9 +214,6 @@ def screen_ranking():
     show_cols = ['Rang','Ticker','name','flag','typ','Capex_Bias','Gesamtscore','Investment_Rating'] + PFLICHT_KPIS
     df_show = df[show_cols]
     st.table(df_show.style.map(highlight_na))
-    output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False)
-    st.download_button("📥 Excel", output.getvalue(), file_name=f"AI_Ranking_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
 
 if st.session_state.modus == "sammeln": screen_sammeln()
 elif st.session_state.modus == "abfrage": screen_abfrage()
