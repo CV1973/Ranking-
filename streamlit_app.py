@@ -1,7 +1,7 @@
 # ============================================
-# AI Infrastructure Ranking v7.37 KISS FINAL
+# AI Infrastructure Ranking v7.37 KISS FINAL + CNN F&G
 # 6 KPIs + Strategic | Engine: v7.36 abgespeckt
-# Letzte Aenderung: Performance_52W, _info, _financials, NAMEN, Strategischer_Aufschlag entfernt
+# Fix: Fear&Greed via fear-and-greed package
 # ============================================
 
 import streamlit as st
@@ -13,30 +13,8 @@ from datetime import datetime
 import io
 import warnings
 import requests
+import fear_and_greed
 warnings.filterwarnings("ignore")
-
-# ============================================
-# 0. LOGIN SCHUTZ v7.37
-# ============================================
-def check_password():
-    def password_entered():
-        if st.session_state["password"] == "Dickie": # <-- HIER DEIN PASSWORT
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    if "password_correct" not in st.session_state:
-        st.text_input("Passwort", type="password", on_change=password_entered, key="password")
-        st.stop()
-    elif not st.session_state["password_correct"]:
-        st.text_input("Passwort", type="password", on_change=password_entered, key="password")
-        st.error("😞 Passwort falsch")
-        st.stop()
-    else:
-        return True
-
-check_password()
 
 st.set_page_config(page_title="AI Infrastructure Ranking v7.37", layout="wide")
 VERSION = "v7.37"
@@ -162,13 +140,13 @@ WEIGHTS = {
 # ============================================
 # 4. HELPER FUNKTIONEN
 # ============================================
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def get_fear_greed():
     try:
-        url="https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
-        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=10)
-        return r.json()["fear_and_greed"]["score"]
-    except: return np.nan
+        fg = fear_and_greed.get() # scraped CNN direkt
+        return round(fg.value) # 0-100
+    except:
+        return 50 # Fallback Neutral
 
 def safe_get(info, key):
     try: value = info.get(key); return np.nan if value is None else value
@@ -298,7 +276,7 @@ def get_investment_rating(score):
 def screen_sammeln():
     st.title(f"AI Infrastructure Ranking {VERSION}")
     fear_greed = get_fear_greed()
-    st.info(f"**Investment Thesis:** AI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed:.0f}")
+    st.info(f"**Investment Thesis:** AI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed}")
     st.subheader(f"Aktuelles Universum: {len(st.session_state.aktien_liste)} Werte")
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.dataframe(df_meta, use_container_width=True, hide_index=True)
