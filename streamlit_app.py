@@ -1,7 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.37 KISS FINAL + CNN F&G
-# 6 KPIs + Strategic | Engine: v7.36 abgespeckt
-# Fix: Fear&Greed via fear-and-greed package
+# AI Infrastructure Ranking v7.38 KISS FINAL + CNN F&G
+# Regel: Kein Score wenn KPI fehlt
 # ============================================
 
 import streamlit as st
@@ -17,12 +16,11 @@ import fear_and_greed
 warnings.filterwarnings("ignore")
 
 # ============================================
-# 0. LOGIN SCHUTZ v7.37
+# 0. LOGIN SCHUTZ v7.38
 # ============================================
-
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "Dicker": # <-- HIER DEIN PASSWORT
+        if st.session_state["password"] == "Dicker":
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
@@ -40,8 +38,8 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.37", layout="wide")
-VERSION = "v7.37"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.38", layout="wide")
+VERSION = "v7.38"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
 # ============================================
@@ -65,7 +63,7 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.37 - 62 WERTE
+# 2. STOCK_UNIVERSE v7.38 - 62 WERTE GEFIXT
 # ============================================
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
@@ -75,8 +73,8 @@ STOCK_UNIVERSE = [
 {"ticker":"ARM", "name":"Arm Holdings", "country":"UK", "flag":"🇬🇧", "region":"Europe", "segment":"AI Compute", "index":"NASDAQ"},
 {"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"Dow Jones"},
 {"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
-{"ticker":"000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
-{"ticker":"005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
+{"ticker":"A000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
+{"ticker":"A005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
 {"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
 {"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
 {"ticker":"4449.T", "name":"Kioxia", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Memory / HBM", "index":"TSE Prime"},
@@ -92,10 +90,10 @@ STOCK_UNIVERSE = [
 {"ticker":"TER", "name":"Teradyne", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Semi Equipment", "index":"NASDAQ 100"},
 {"ticker":"TSM", "name":"TSMC", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Foundry", "index":"Taiwan Weighted"},
 {"ticker":"GFS", "name":"GlobalFoundries", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Foundry", "index":"NASDAQ 100"},
-{"ticker":"2303.TW", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Foundry", "index":"Taiwan Weighted"},
+{"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Foundry", "index":"Taiwan Weighted"},
 {"ticker":"IFNNY", "name":"Infineon ADR", "country":"Germany", "flag":"🇩🇪", "region":"Europe", "segment":"Automotive Semiconductor / Power Semiconductor", "index":"DAX"},
 {"ticker":"ANET", "name":"Arista Networks", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
-{"ticker":"CRED", "name":"Credo", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ"},
+{"ticker":"CRDO", "name":"Credo", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ"},
 {"ticker":"COHR", "name":"Coherent", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
 {"ticker":"LITE", "name":"Lumentum", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
 {"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Networking / Optical", "index":"Nikkei 225"},
@@ -103,8 +101,8 @@ STOCK_UNIVERSE = [
 {"ticker":"NOK", "name":"Nokia", "country":"Finland", "flag":"🇫🇮", "region":"Europe", "segment":"Networking / Optical", "index":"OMX Helsinki"},
 {"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Server / DC Hardware", "index":"S&P 500"},
 {"ticker":"SMCI", "name":"Super Micro Computer", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Server / DC Hardware", "index":"NASDAQ 100"},
-{"ticker":"2353.TW", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
-{"ticker":"2392.TW", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
+{"ticker":"2353.TWO", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
+{"ticker":"2392.TWO", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
 {"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "region":"Europe", "segment":"Power / Cooling", "index":"CAC 40"},
 {"ticker":"ETN", "name":"Eaton", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
 {"ticker":"VRT", "name":"Vertiv", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
@@ -125,7 +123,7 @@ STOCK_UNIVERSE = [
 {"ticker":"DLR", "name":"Digital Realty", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"S&P 500"},
 {"ticker":"CCJ", "name":"Cameco", "country":"Canada", "flag":"🇨🇦", "region":"North America", "segment":"Nuclear Energy Supply", "index":"NYSE"},
 {"ticker":"BWXT", "name":"BWX Technologies", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Nuclear Technology", "index":"NYSE"},
-{"ticker":"8306.T", "name":"MUFG", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"AI Infrastructure Financing", "index":"Nikkei 225"},
+{"ticker":"MUFG", "name":"MUFG", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"AI Infrastructure Financing", "index":"Nikkei 225"},
 {"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Infrastructure Software", "index":"NASDAQ 100"},
 {"ticker":"PLTR", "name":"Palantir", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Infrastructure Software", "index":"NASDAQ 100"},
 ]
@@ -142,7 +140,7 @@ SEGMENT_SCORE = {
 }
 
 # ============================================
-# 3. PFLICHT_KPIS v7.37 KISS - 6 KPIs
+# 3. PFLICHT_KPIS v7.38 KISS - 6 KPIs
 # ============================================
 PFLICHT_KPIS = [
     "Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge",
@@ -167,10 +165,10 @@ WEIGHTS = {
 @st.cache_data(ttl=1800)
 def get_fear_greed():
     try:
-        fg = fear_and_greed.get() # scraped CNN direkt
-        return round(fg.value) # 0-100
+        fg = fear_and_greed.get()
+        return round(fg.value)
     except:
-        return 50 # Fallback Neutral
+        return 50
 
 def safe_get(info, key):
     try: value = info.get(key); return np.nan if value is None else value
@@ -202,7 +200,9 @@ def yahoo_laden(ticker):
         time.sleep(0.8)
         tk = yf.Ticker(ticker)
         info = tk.info or {}
-        if not info: return None
+        fin = tk.financials
+        bs = tk.balance_sheet
+        cf = tk.cashflow
 
         price = safe_get(info,"currentPrice")
         if pd.isna(price): price = safe_get(info,"regularMarketPrice")
@@ -217,10 +217,24 @@ def yahoo_laden(ticker):
 
         fcf = safe_get(info,"freeCashflow")
         revenue = safe_get(info,"totalRevenue")
+
+        # FALLBACK aus Financials
+        if pd.isna(revenue) and not fin.empty:
+            revenue = fin.iloc[0,0]
+        if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index:
+            fcf = cf.loc['Free Cash Flow'].iloc[0]
+
         if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0:
             fcf_marge = fcf / revenue
         else:
             fcf_marge = np.nan
+
+        if pd.isna(brutto) and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
+            try: brutto = fin.loc['Gross Profit'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
+            except: pass
+        if pd.isna(op_marge) and not fin.empty and 'Operating Income' in fin.index and 'Total Revenue' in fin.index:
+            try: op_marge = fin.loc['Operating Income'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
+            except: pass
 
         return {
             "Aktueller_Kurs": price, "Waehrung": currency,
@@ -254,16 +268,16 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 5. SCORING ENGINE v7.37 KISS
+# 5. SCORING ENGINE v7.38 KISS - MIT HARTER REGEL
 # ============================================
 def normalize(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce")
     valid = s.dropna()
-    if len(valid) < 2: return pd.Series(0.5, index=s.index)
+    if len(valid) < 2: return pd.Series(np.nan, index=s.index)
     x = s.copy()
     if not higher_better: x = -x
     rank = x.rank(pct=True)
-    return rank.fillna(0.5)
+    return rank
 
 def calculate_scores(df):
     for col, w in WEIGHTS.items():
@@ -272,27 +286,36 @@ def calculate_scores(df):
             df[f'Norm_{col}'] = normalize(df, col, not lower_better) * w
 
     finanz_gewichte = {k:v for k,v in WEIGHTS.items() if k!= 'Strategic_Score'}
-    df['Finanzscore'] = df[[f'Norm_{c}' for c in finanz_gewichte.keys()]].sum(axis=1) * 100
 
+    # HARTE REGEL: Nur berechnen wenn alle 6 KPIs da sind
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
+    df['Vollständig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
+
+    df['Finanzscore'] = np.nan
+    df.loc[df['Vollständig'], 'Finanzscore'] = df.loc[df['Vollständig'], [f'Norm_{c}' for c in finanz_gewichte.keys()]].sum(axis=1, skipna=False) * 100
+
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
 
-    df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9 + df['Strategic_Score'] * 0.1
-    df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität'])).round(1)
+    df['Gesamtscore_Roh'] = np.nan
+    df.loc[df['Vollständig'], 'Gesamtscore_Roh'] = df.loc[df['Vollständig'], 'Finanzscore'] * 0.9 + df.loc[df['Vollständig'], 'Strategic_Score'] * 0.1
+    df['Gesamtscore'] = np.nan
+    df.loc[df['Vollständig'], 'Gesamtscore'] = (df.loc[df['Vollständig'], 'Gesamtscore_Roh'] * (0.3 + 0.7 * df.loc[df['Vollständig'], 'Datenqualität'])).round(1)
 
-    df = df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
-    df["Rang"] = df.index + 1
+    df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
+    df["Rang"] = np.where(df['Vollständig'], df.index + 1, np.nan)
     return df
 
 def get_investment_rating(score):
+    if pd.isna(score): return np.nan # HARTE REGEL
     if score >= 80: return "Strong Buy"
     elif score >= 65: return "Buy"
     elif score >= 45: return "Hold"
     else: return "Sell"
 
-# Styling Funktion für N/A
-def highlight_na(s):
-    return ['background-color: #FFF9C4' if pd.isna(v) else '' for v in s]
+def highlight_na(val):
+    if pd.isna(val):
+        return 'background-color: #FFF9C4' # hellgelb
+    return ''
 
 # ============================================
 # 6. SCREENS
@@ -308,8 +331,11 @@ def screen_sammeln():
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
         with st.spinner("Lade Yahoo Daten..."):
             baue_abfrage_queue()
-        # FIX 1: Direkt ins Ranking springen
-        st.session_state.modus = "ranking"; st.rerun()
+        if len(st.session_state.abfrage_queue) == 0:
+            st.session_state.modus = "ranking"
+        else:
+            st.session_state.modus = "abfrage"
+        st.rerun()
 
 def screen_uebersicht():
     st.title(f"AI Infrastructure Ranking {VERSION}")
@@ -349,39 +375,37 @@ def screen_ranking():
     df = calculate_scores(df)
     df["Investment_Rating"] = df["Gesamtscore"].apply(get_investment_rating)
 
-    st.subheader("Ranking v7.37 KISS")
+    st.subheader("Ranking v7.38 KISS")
+    st.warning("Hinweis: Gesamtscore + Rating = N/A wenn 1 KPI fehlt")
+
     show_cols = ['Rang','Ticker','name','flag','country','region','segment','index',
                  'Aktueller_Kurs','Waehrung','Forward_KGV','EV_EBITDA','Umsatz_Wachstum',
                  'Bruttomarge','Operating_Margin','FCF_Marge',
-                 'Strategic_Score','Finanzscore','Datenqualität','Gesamtscore','Investment_Rating']
+                 'Strategic_Score','Finanzscore','Datenpunkte','Datenqualität','Gesamtscore','Investment_Rating']
     show_cols = [c for c in show_cols if c in df.columns]
     df_show = df[show_cols].copy()
 
-    # FIX 2: NaN durch "N/A" ersetzen und hellgelb markieren
-    for col in PFLICHT_KPIS:
-        if col in df_show.columns:
-            df_show[col] = df_show[col].apply(lambda x: "N/A" if pd.isna(x) else round(x, 2))
+    format_dict = {c: lambda x: "N/A" if pd.isna(x) else f"{x:.2f}" for c in PFLICHT_KPIS + ['Finanzscore','Gesamtscore','Datenqualität'] if c in df_show.columns}
+    format_dict['Rang'] = lambda x: "N/A" if pd.isna(x) else f"{int(x)}"
+    format_dict['Investment_Rating'] = lambda x: "N/A" if pd.isna(x) else x
 
-    st.dataframe(
-        df_show.style.apply(highlight_na, subset=PFLICHT_KPIS),
-        use_container_width=True,
-        hide_index=True
-    )
+    styled_df = df_show.style.map(highlight_na).format(format_dict)
+    st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
     output=io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Ranking_v7.37")
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.38")
         pd.DataFrame(STOCK_UNIVERSE).to_excel(writer, index=False, sheet_name="Universum")
-        df[['Ticker','name','Datenpunkte','Datenqualität']].to_excel(writer, index=False, sheet_name="Datenqualität")
+        df[['Ticker','name','Datenpunkte','Datenqualität','Vollständig']].to_excel(writer, index=False, sheet_name="Datenqualität")
         audit_rows = []
         for ticker, obj in st.session_state.datenbank.items():
             for kpi, audit in obj["audit"].items():
                 audit_rows.append({"Ticker":ticker, "KPI":kpi, **audit})
         pd.DataFrame(audit_rows).to_excel(writer, index=False, sheet_name="Audit")
 
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.37_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.38_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
     csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 CSV herunterladen", csv, file_name=f"AI_Ranking_v7.37_{datetime.now().strftime('%Y-%m-%d')}.csv", use_container_width=True)
+    st.download_button("📥 CSV herunterladen", csv, file_name=f"AI_Ranking_v7.38_{datetime.now().strftime('%Y-%m-%d')}.csv", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START / ROUTING
