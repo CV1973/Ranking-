@@ -23,8 +23,8 @@ def check_password():
     else: return True
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.5", layout="wide")
-VERSION = "v7.45.5"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.45.7", layout="wide")
+VERSION = "v7.45.7"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFAENGER GEWINNEN"
 
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
@@ -37,27 +37,72 @@ if st.session_state.version_loaded!= VERSION:
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
 {"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
+{"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
+{"ticker":"MRVL", "name":"Marvell", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
+{"ticker":"ARM", "name":"Arm Holdings", "country":"UK", "flag":"🇬🇧", "segment":"AI Compute", "typ":"Empfaenger"},
+{"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
+{"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
 {"ticker":"A000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
 {"ticker":"A005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"2353.TWO", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
-{"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
+{"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
+{"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfaenger"},
+{"ticker":"4449.T", "name":"Kioxia", "country":"Japan", "flag":"🇯🇵", "segment":"Memory / HBM", "typ":"Empfaenger"},
+{"ticker":"ASML", "name":"ASML", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"AMAT", "name":"Applied Materials", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"LRCX", "name":"Lam Research", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"KLAC", "name":"KLA", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"8035.T", "name":"Tokyo Electron", "country":"Japan", "flag":"🇯🇵", "segment":"Semi Equipment", "typ":"Empfaenger"},
 {"ticker":"ASMI.AS", "name":"ASM International", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"VATN.SW", "name":"VAT Group", "country":"Switzerland", "flag":"🇨🇭", "segment":"Semi Equipment", "typ":"Empfaenger"},
 {"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "segment":"Networking / Optical", "typ":"Empfaenger"},
-{"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"6857.T", "name":"Advantest", "country":"Japan", "flag":"🇯🇵", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"TER", "name":"Teradyne", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfaenger"},
+{"ticker":"TSM", "name":"TSMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
+{"ticker":"GFS", "name":"GlobalFoundries", "country":"USA", "flag":"🇺🇸", "segment":"Foundry", "typ":"Empfaenger"},
+{"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
+{"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
+{"ticker":"SMCI", "name":"Super Micro Computer", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
+{"ticker":"2353.TWO", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
 {"ticker":"2392.TWO", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
-{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
+{"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"ETN", "name":"Eaton", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"VRT", "name":"Vertiv", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"SIE.DE", "name":"Siemens", "country":"Germany", "flag":"🇩🇪", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"ENR.DE", "name":"Siemens Energy", "country":"Germany", "flag":"🇩🇪", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"ABBN.SW", "name":"ABB", "country":"Switzerland", "flag":"🇨🇭", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"BE", "name":"Bloom Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"GEV", "name":"GE Vernova", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"CEG", "name":"Constellation Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"TXN", "name":"Texas Instruments", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"ANET", "name":"Arista Networks", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"CRDO", "name":"Credo", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"COHR", "name":"Coherent", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"LITE", "name":"Lumentum", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"CSCO", "name":"Cisco", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfaenger"},
+{"ticker":"NOK", "name":"Nokia", "country":"Finland", "flag":"🇫🇮", "segment":"Networking / Optical", "typ":"Empfaenger"},
 {"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
 {"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"GOOGL", "name":"Alphabet", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"META", "name":"Meta", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"ORCL", "name":"Oracle", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"NOW", "name":"ServiceNow", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"EQIX", "name":"Equinix", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"DLR", "name":"Digital Realty", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
+{"ticker":"IFNNY", "name":"Infineon ADR", "country":"Germany", "flag":"🇩🇪", "segment":"Automotive Semiconductor", "typ":"Neutral"},
+{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
+{"ticker":"PLTR", "name":"Palantir", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
+{"ticker":"CCJ", "name":"Cameco", "country":"Canada", "flag":"🇨🇦", "segment":"Nuclear Energy Supply", "typ":"Neutral"},
+{"ticker":"BWXT", "name":"BWX Technologies", "country":"USA", "flag":"🇺🇸", "segment":"Nuclear Technology", "typ":"Neutral"},
+{"ticker":"MUFG", "name":"MUFG", "country":"Japan", "flag":"🇯🇵", "segment":"AI Infrastructure Financing", "typ":"Neutral"},
 ]
-if len(st.session_state.aktien_liste) == 0: st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
 
+if len(st.session_state.aktien_liste) == 0: st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
 CAPEX_BIAS = {"Empfaenger": 10, "Spender": -10, "Neutral": 0}
 WEIGHTS = {
     "Empfaenger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
     "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
-}
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
 
@@ -83,27 +128,33 @@ def save_kpi(ticker,kpi,value,quelle):
     obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def yahoo_laden(ticker):
-    result = {}
-    try:
-        if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']):
-            time.sleep(2.0)
-        else:
-            time.sleep(0.8)
-        tk = yf.Ticker(ticker)
-        result["Aktueller_Kurs"] = tk.info.get("currentPrice", np.nan) or tk.info.get("regularMarketPrice", np.nan)
-        result["Forward_KGV"] = tk.info.get("forwardPE", np.nan)
-        result["EV_EBITDA"] = tk.info.get("enterpriseToEbitda", np.nan)
-        result["Umsatz_Wachstum"] = tk.info.get("revenueGrowth", np.nan)
-        result["Bruttomarge"] = tk.info.get("grossMargins", np.nan)
-        result["Operating_Margin"] = tk.info.get("operatingMargins", np.nan)
-        fin = tk.financials; cf = tk.cashflow
-        fcf = tk.info.get("freeCashflow", np.nan); revenue = tk.info.get("totalRevenue", np.nan)
-        if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0,0]
-        if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
-        result["FCF_Marge"] = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0 else np.nan
-        return result
-    except: return None
+def yahoo_laden(ticker, retry=2):
+    result = {k: np.nan for k in ["Aktueller_Kurs","Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]}
+    for attempt in range(retry):
+        try:
+            if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']):
+                time.sleep(4.0)
+            else:
+                time.sleep(1.5)
+            tk = yf.Ticker(ticker)
+            info = tk.info
+            result["Aktueller_Kurs"] = info.get("currentPrice") or info.get("regularMarketPrice", np.nan)
+            result["Forward_KGV"] = info.get("forwardPE", np.nan)
+            result["EV_EBITDA"] = info.get("enterpriseToEbitda", np.nan)
+            result["Umsatz_Wachstum"] = info.get("revenueGrowth", np.nan)
+            result["Bruttomarge"] = info.get("grossMargins", np.nan)
+            result["Operating_Margin"] = info.get("operatingMargins", np.nan)
+            fin = tk.financials; cf = tk.cashflow
+            fcf = info.get("freeCashflow", np.nan); revenue = info.get("totalRevenue", np.nan)
+            if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0,0]
+            if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
+            if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0: result["FCF_Marge"] = fcf / revenue
+            if not all(pd.isna(v) for v in result.values()):
+                return result
+        except:
+            if attempt < retry-1: time.sleep(5)
+            else: return None
+    return None
 
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
@@ -112,8 +163,10 @@ def fehlende_kpis(ticker):
 def baue_abfrage_queue():
     queue = []
     progress = st.progress(0)
+    status_text = st.empty()
     for i, ticker in enumerate(st.session_state.aktien_liste):
         init_ticker(ticker); obj = st.session_state.datenbank[ticker]
+        status_text.text(f"Lade {i+1}/{len(st.session_state.aktien_liste)}: {ticker}")
         if obj["status"] == "neu":
             daten = yahoo_laden(ticker)
             if daten:
@@ -122,6 +175,7 @@ def baue_abfrage_queue():
             obj["status"] = "geladen"
         progress.progress((i+1)/len(st.session_state.aktien_liste))
         for kpi in fehlende_kpis(ticker): queue.append((ticker, kpi))
+    status_text.empty()
     st.session_state.abfrage_queue = queue
 
 def normalize_global(df, col, higher_better=True):
@@ -154,22 +208,13 @@ def calculate_scores(df):
     df["Rang"] = df.index + 1
     return df
 
-# ================== ENDE TEIL 1 ==================
-# ================== START TEIL 2 ==================
-
 def get_investment_rating(score, vollstaendig):
-    if pd.isna(score):
-        return "N/A"
-    if not vollstaendig:
-        return "N/A - Daten fehlen"
-    if score >= 80:
-        return "Strong Buy"
-    elif score >= 65:
-        return "Buy"
-    elif score >= 45:
-        return "Hold"
-    else:
-        return "Sell"
+    if pd.isna(score): return "N/A"
+    if not vollstaendig: return "N/A - Daten fehlen"
+    if score >= 80: return "Strong Buy"
+    elif score >= 65: return "Buy"
+    elif score >= 45: return "Hold"
+    else: return "Sell"
 
 def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
@@ -181,7 +226,7 @@ def screen_sammeln():
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.table(df_meta[['ticker','name','flag','segment','typ']])
     if st.button("✅ Auswertung starten", type="primary"):
-        with st.spinner("Lade Yahoo Daten..."):
+        with st.spinner("Lade Yahoo Daten... 4s Delay fuer Asien/EU"):
             baue_abfrage_queue()
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
@@ -228,5 +273,3 @@ def screen_ranking():
 if st.session_state.modus == "sammeln": screen_sammeln()
 elif st.session_state.modus == "abfrage": screen_abfrage()
 elif st.session_state.modus == "ranking": screen_ranking()
-
-# ================== ENDE TEIL 2 ==================
