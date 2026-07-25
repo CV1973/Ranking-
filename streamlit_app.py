@@ -224,13 +224,19 @@ def calculate_scores(df):
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-  def get_investment_rating(score, vollständig):
-    if pd.isna(score): return "N/A"
-    if not vollständig: return "N/A - Daten fehlen"
-    if score >= 80: return "Strong Buy"
-    elif score >= 65: return "Buy"
-    elif score >= 45: return "Hold"
-    else: return "Sell"
+  def get_investment_rating(score, vollstaendig):
+    if pd.isna(score):
+        return "N/A"
+    if not vollstaendig:
+        return "N/A - Daten fehlen"
+    if score >= 80:
+        return "Strong Buy"
+    elif score >= 65:
+        return "Buy"
+    elif score >= 45:
+        return "Hold"
+    else:
+        return "Sell"
 
 def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
@@ -240,7 +246,7 @@ def screen_sammeln():
     st.title(f"AI Infrastructure Ranking {VERSION}")
     fear_greed = get_fear_greed()
     st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **OpMargin: 30%**")
-    st.subheader(f"Universum: {len([s for s in STOCK_UNIVERSE if s['typ']=='Empfänger'])} Empfänger + {len([s for s in STOCK_UNIVERSE if s['typ']=='Spender'])} Spender + {len([s for s in STOCK_UNIVERSE if s['typ']=='Neutral'])} Neutral = {len(STOCK_UNIVERSE)} Werte")
+    st.subheader(f"Universum: {len([s for s in STOCK_UNIVERSE if s['typ']=='Empfaenger'])} Empfaenger + {len([s for s in STOCK_UNIVERSE if s['typ']=='Spender'])} Spender + {len([s for s in STOCK_UNIVERSE if s['typ']=='Neutral'])} Neutral = {len(STOCK_UNIVERSE)} Werte")
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.table(df_meta[['ticker','name','flag','segment','typ']])
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
@@ -250,7 +256,10 @@ def screen_sammeln():
         st.rerun()
 
 def screen_abfrage():
-    if len(st.session_state.abfrage_queue) == 0: st.session_state.modus = "ranking"; st.rerun(); return
+    if len(st.session_state.abfrage_queue) == 0:
+        st.session_state.modus = "ranking"
+        st.rerun()
+        return
     ticker, kpi = st.session_state.abfrage_queue[0]
     st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
     st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
@@ -259,17 +268,24 @@ def screen_abfrage():
     with col1:
         if st.button("💾 Speichern"):
             wert = parse_number(eingabe)
-            if pd.isna(wert): st.error("Keine gültige Zahl"); return
+            if pd.isna(wert):
+                st.error("Keine gueltige Zahl")
+                return
             save_kpi(ticker, kpi, wert, "Manuell")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
     with col2:
-        if st.button("⏭️ Überspringen"):
-            save_kpi(ticker, kpi, np.nan, "Übersprungen")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+        if st.button("⏭️ Ueberspringen"):
+            save_kpi(ticker, kpi, np.nan, "Uebersprungen")
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
     with col3:
-        if st.button("⏭️⏭️ Alle überspringen"):
-            for t, k in st.session_state.abfrage_queue: save_kpi(t, k, np.nan, "Bulk Übersprungen")
-            st.session_state.abfrage_queue = []; st.session_state.modus = "ranking"; st.rerun()
+        if st.button("⏭️⏭️ Alle ueberspringen"):
+            for t, k in st.session_state.abfrage_queue:
+                save_kpi(t, k, np.nan, "Bulk Uebersprungen")
+            st.session_state.abfrage_queue = []
+            st.session_state.modus = "ranking"
+            st.rerun()
 
 def screen_ranking():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
@@ -278,19 +294,23 @@ def screen_ranking():
     df=pd.DataFrame(liste)
     if len(df)<2:
         st.error("Zu wenige Aktien")
-        if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
+        if st.button("⬅️ Zurueck zur Liste"):
+            st.session_state.modus = "sammeln"
+            st.rerun()
         return
     df = calculate_scores(df)
-    df["Investment_Rating"] = df.apply(lambda x: get_investment_rating(x["Gesamtscore"], x["Vollständig"]), axis=1)
-    fehlende = df[df['Vollständig'] == False]
+    df["Investment_Rating"] = df.apply(lambda x: get_investment_rating(x["Gesamtscore"], x["Vollstaendig"]), axis=1)
+    fehlende = df[df['Vollstaendig'] == False]
     if len(fehlende) > 0:
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten:")
         st.table(fehlende[['Ticker','name','flag','Datenpunkte']])
     st.subheader("Globales Ranking v7.45.3")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
     seg_filter = st.selectbox("Segment Filter", ["Alle"] + sorted(df['segment'].unique()))
-    if seg_filter!= "Alle": df_show = df[df['segment']==seg_filter].copy()
-    else: df_show = df.copy()
+    if seg_filter!= "Alle":
+        df_show = df[df['segment']==seg_filter].copy()
+    else:
+        df_show = df.copy()
     show_cols = ['Rang','Ticker','name','flag','segment','typ','Capex_Bias','Aktueller_Kurs','Forward_KGV','EV_EBITDA','Umsatz_Wachstum','Bruttomarge','Operating_Margin','FCF_Marge','Finanzscore','Gesamtscore','Investment_Rating']
     df_show = df_show[show_cols]
     format_dict = {c: lambda x: "N/A" if pd.isna(x) else f"{x:.2f}" for c in PFLICHT_KPIS + ['Finanzscore','Gesamtscore']}
@@ -299,13 +319,19 @@ def screen_ranking():
     styled_df = df_show.style.map(highlight_na).format(format_dict)
     st.table(styled_df)
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.45.3")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.45.3")
     st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.45.3_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
-    if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
+    if st.button("⬅️ Zurueck zur Liste"):
+        st.session_state.modus = "sammeln"
+        st.rerun()
 
 # ============================================
 # 6. APP START
 # ============================================
-if st.session_state.modus == "sammeln": screen_sammeln()
-elif st.session_state.modus == "abfrage": screen_abfrage()
-elif st.session_state.modus == "ranking": screen_ranking()
+if st.session_state.modus == "sammeln":
+    screen_sammeln()
+elif st.session_state.modus == "abfrage":
+    screen_abfrage()
+elif st.session_state.modus == "ranking":
+    screen_ranking()
