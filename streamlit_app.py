@@ -1,6 +1,6 @@
 # ============================================
 # AI Infrastructure Ranking v7.45.4-US-ONLY
-# FIX: ANSS entfernt | SKHY ADR hinzugefügt | Passwort schmaler
+# FIX: ANSS entfernt | SKHY ADR hinzugefügt | Passwort schmaler | README Link
 # AXIOM: CAPEX BOOM BIS Q4 2027
 # ============================================
 
@@ -223,7 +223,14 @@ def highlight_na(val):
 # ============================================
 def screen_sammeln():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
-    st.title(f"AI Infrastructure Ranking {VERSION}")
+
+    col1, col2 = st.columns([4,1]) # 4:1 Verhältnis
+    with col1:
+        st.title(f"AI Infrastructure Ranking {VERSION}")
+    with col2:
+        st.markdown("") # Leerzeile für vertikale Ausrichtung
+        st.markdown("[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)")
+
     fear_greed = get_fear_greed()
     st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **OpMargin: 30%**")
     st.subheader(f"Universum: {len([s for s in STOCK_UNIVERSE if s['typ']=='Empfänger'])} Empfänger + {len([s for s in STOCK_UNIVERSE if s['typ']=='Spender'])} Spender + {len([s for s in STOCK_UNIVERSE if s['typ']=='Neutral'])} Neutral = {len(STOCK_UNIVERSE)} US/ADR Werte")
@@ -259,7 +266,14 @@ def screen_abfrage():
 
 def screen_ranking():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
-    st.title(f"AI Infrastructure Ranking {VERSION}")
+
+    col1, col2 = st.columns([4,1]) # 4:1 Verhältnis
+    with col1:
+        st.title(f"AI Infrastructure Ranking {VERSION}")
+    with col2:
+        st.markdown("") # Leerzeile für vertikale Ausrichtung
+        st.markdown("[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)")
+
     liste=[st.session_state.datenbank[ticker]["daten"] for ticker in st.session_state.aktien_liste]
     df=pd.DataFrame(liste)
     if len(df)<2:
