@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Return Ranking v17.3.4
-# FINAL KISS UI: Nur 1 Reihe "Ticker - Name | AI:Score"
+# AI Infrastructure Ranking v7.37 KISS FINAL
+# 6 KPIs + Strategic | v7.36 Engine - 4 Punkte KISS
 # ============================================
 
 import streamlit as st
@@ -12,24 +12,17 @@ from datetime import datetime
 import io
 import warnings
 import requests
-from bs4 import BeautifulSoup
-import re
 warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="AI Return Ranking v17.3.4", layout="wide")
-VERSION = "v17.3.4"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.37", layout="wide")
+VERSION = "v7.37"
 AI_CYCLE_ASSUMPTION = "INTAKT BIS Q4 2027"
 
-# ============================================
-# SESSION STATE
-# ============================================
-
 DEFAULTS = {
-    "aktien_liste": ["NVDA","000660.KS","005930.KS","TSM","MU","AVGO","ASML","AMD","AMAT","LRCX","KLAC","285A.T","SNDK","MSFT","GOOGL","AMZN"],
+    "aktien_liste": [],
     "datenbank": {},
     "modus": "sammeln",
     "abfrage_queue": [],
-    "web_vorschlaege": {},
     "version_loaded": ""
 }
 
@@ -42,44 +35,98 @@ if st.session_state.version_loaded!= VERSION:
         st.session_state[key] = val
     st.session_state.version_loaded = VERSION
 
-NAMEN = {
-    "NVDA":"Nvidia", "000660.KS":"SK Hynix", "005930.KS":"Samsung", "TSM":"TSMC", "MU":"Micron",
-    "AVGO":"Broadcom", "ASML":"ASML", "AMD":"AMD", "AMAT":"Applied Materials", "LRCX":"Lam Research",
-    "KLAC":"KLA", "285A.T":"Kioxia", "SNDK":"SanDisk", "MSFT":"Microsoft", "GOOGL":"Alphabet", "AMZN":"Amazon"
-}
+STOCK_UNIVERSE = [
+{"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
+{"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
+{"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
+{"ticker":"MRVL", "name":"Marvell", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"NASDAQ 100"},
+{"ticker":"ARM", "name":"Arm Holdings", "country":"UK", "flag":"🇬🇧", "region":"Europe", "segment":"AI Compute", "index":"NASDAQ"},
+{"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Compute", "index":"Dow Jones"},
+{"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
+{"ticker":"000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
+{"ticker":"005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "region":"Asia", "segment":"Memory / HBM", "index":"KOSPI"},
+{"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
+{"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Memory / HBM", "index":"NASDAQ 100"},
+{"ticker":"4449.T", "name":"Kioxia", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Memory / HBM", "index":"TSE Prime"},
+{"ticker":"ASML", "name":"ASML", "country":"Netherlands", "flag":"🇳🇱", "region":"Europe", "segment":"Semi Equipment", "index":"AEX"},
+{"ticker":"AMAT", "name":"Applied Materials", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Semi Equipment", "index":"NASDAQ 100"},
+{"ticker":"LRCX", "name":"Lam Research", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Semi Equipment", "index":"NASDAQ 100"},
+{"ticker":"KLAC", "name":"KLA", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Semi Equipment", "index":"NASDAQ 100"},
+{"ticker":"8035.T", "name":"Tokyo Electron", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Semi Equipment", "index":"Nikkei 225"},
+{"ticker":"ASMI.AS", "name":"ASM International", "country":"Netherlands", "flag":"🇳🇱", "region":"Europe", "segment":"Semi Equipment", "index":"AEX"},
+{"ticker":"VATN.SW", "name":"VAT Group", "country":"Switzerland", "flag":"🇨🇭", "region":"Europe", "segment":"Semi Equipment", "index":"SMI"},
+{"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "region":"Europe", "segment":"Semi Equipment", "index":"AEX"},
+{"ticker":"6857.T", "name":"Advantest", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Semi Equipment", "index":"Nikkei 225"},
+{"ticker":"TER", "name":"Teradyne", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Semi Equipment", "index":"NASDAQ 100"},
+{"ticker":"TSM", "name":"TSMC", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Foundry", "index":"Taiwan Weighted"},
+{"ticker":"GFS", "name":"GlobalFoundries", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Foundry", "index":"NASDAQ 100"},
+{"ticker":"2303.TW", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Foundry", "index":"Taiwan Weighted"},
+{"ticker":"IFNNY", "name":"Infineon ADR", "country":"Germany", "flag":"🇩🇪", "region":"Europe", "segment":"Automotive Semiconductor / Power Semiconductor", "index":"DAX"},
+{"ticker":"ANET", "name":"Arista Networks", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
+{"ticker":"CRED", "name":"Credo", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ"},
+{"ticker":"COHR", "name":"Coherent", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
+{"ticker":"LITE", "name":"Lumentum", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"NASDAQ 100"},
+{"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"Networking / Optical", "index":"Nikkei 225"},
+{"ticker":"CSCO", "name":"Cisco", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Networking / Optical", "index":"Dow Jones"},
+{"ticker":"NOK", "name":"Nokia", "country":"Finland", "flag":"🇫🇮", "region":"Europe", "segment":"Networking / Optical", "index":"OMX Helsinki"},
+{"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Server / DC Hardware", "index":"S&P 500"},
+{"ticker":"SMCI", "name":"Super Micro Computer", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Server / DC Hardware", "index":"NASDAQ 100"},
+{"ticker":"2353.TW", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
+{"ticker":"2392.TW", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "region":"Asia", "segment":"Server / DC Hardware", "index":"Taiwan Weighted"},
+{"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "region":"Europe", "segment":"Power / Cooling", "index":"CAC 40"},
+{"ticker":"ETN", "name":"Eaton", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
+{"ticker":"VRT", "name":"Vertiv", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
+{"ticker":"SIE.DE", "name":"Siemens", "country":"Germany", "flag":"🇩🇪", "region":"Europe", "segment":"Power / Cooling", "index":"DAX"},
+{"ticker":"ENR.DE", "name":"Siemens Energy", "country":"Germany", "flag":"🇩🇪", "region":"Europe", "segment":"Power / Cooling", "index":"MDAX"},
+{"ticker":"ABBN.SW", "name":"ABB", "country":"Switzerland", "flag":"🇨🇭", "region":"Europe", "segment":"Power / Cooling", "index":"SMI"},
+{"ticker":"BE", "name":"Bloom Energy", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"NASDAQ"},
+{"ticker":"GEV", "name":"GE Vernova", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
+{"ticker":"CEG", "name":"Constellation Energy", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"S&P 500"},
+{"ticker":"TXN", "name":"Texas Instruments", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Power / Cooling", "index":"NASDAQ 100"},
+{"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"GOOGL", "name":"Alphabet", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"META", "name":"Meta", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"ORCL", "name":"Oracle", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"NOW", "name":"ServiceNow", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"EQIX", "name":"Equinix", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"NASDAQ 100"},
+{"ticker":"DLR", "name":"Digital Realty", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Cloud / AI Platform", "index":"S&P 500"},
+{"ticker":"CCJ", "name":"Cameco", "country":"Canada", "flag":"🇨🇦", "region":"North America", "segment":"Nuclear Energy Supply", "index":"NYSE"},
+{"ticker":"BWXT", "name":"BWX Technologies", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"Nuclear Technology", "index":"NYSE"},
+{"ticker":"8306.T", "name":"MUFG", "country":"Japan", "flag":"🇯🇵", "region":"Asia", "segment":"AI Infrastructure Financing", "index":"Nikkei 225"},
+{"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Infrastructure Software", "index":"NASDAQ 100"},
+{"ticker":"PLTR", "name":"Palantir", "country":"USA", "flag":"🇺🇸", "region":"North America", "segment":"AI Infrastructure Software", "index":"NASDAQ 100"},
+]
 
-AI_SCORES = {
-    "NVDA": 100, "000660.KS": 90, "005930.KS": 80, "TSM": 95, "MU": 85, "AVGO": 85, "ASML": 95,
-    "AMD": 80, "AMAT": 75, "LRCX": 75, "KLAC": 75, "285A.T": 75, "SNDK": 70, "MSFT": 85, "GOOGL": 85, "AMZN": 85
+if len(st.session_state.aktien_liste) == 0:
+    st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
+
+# 3. NAMEN ENTFERNT
+
+SEGMENT_SCORE = {
+    "AI Compute": 90, "Memory / HBM": 88, "Semi Equipment": 85, "Foundry": 85,
+    "Networking / Optical": 80, "Server / DC Hardware": 82, "Power / Cooling": 78,
+    "Cloud / AI Platform": 85, "Automotive Semiconductor / Power Semiconductor": 78,
+    "Nuclear Energy Supply": 70, "Nuclear Technology": 70, "AI Infrastructure Financing": 60,
+    "AI Infrastructure Software": 83
 }
 
 PFLICHT_KPIS = [
-    "Forward_KGV","PEG","EV_EBITDA","FCF_Yield",
-    "Umsatz_Wachstum","OpMarge","FCF_Marge","Performance_52W"
+    "Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge",
+    "Operating_Margin","FCF_Marge"
 ]
 
 KPI_LABELS = {
-    "Forward_KGV":"Forward KGV","PEG":"PEG Ratio","EV_EBITDA":"EV/EBITDA","FCF_Yield":"FCF Yield",
-    "Umsatz_Wachstum":"Umsatzwachstum","OpMarge":"Operative Marge","FCF_Marge":"FCF Marge",
-    "Performance_52W":"52 Wochen Performance",
-    "AI_Score":"AI Strategischer Score"
+    "Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum",
+    "Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin",
+    "FCF_Marge":"FCF Marge","Strategic_Score":"Strategic Score", "Aktueller_Kurs":"Aktueller Kurs"
 }
 
-KPI_HINTS = {
-    "Forward_KGV":"z.B. 25.4","PEG":"z.B. 0.8","EV_EBITDA":"z.B. 18","FCF_Yield":"z.B. 0.05 = 5%",
-    "Umsatz_Wachstum":"z.B. 0.15 = 15%","OpMarge":"z.B. 0.30 = 30%","FCF_Marge":"z.B. 0.20 = 20%",
-    "Performance_52W":"z.B. 0.40 = +40%",
-    "AI_Score":"""0-100 Punkte:
-90-100 = dominanter AI Gewinner (Nvidia CUDA, TSMC Leading Edge)
-70-90 = starke Position (SK Hynix HBM, Broadcom ASIC)
-50-70 = AI Exposure vorhanden
-30-50 = indirekter Gewinner
-0-30 = kaum AI Vorteil"""
+WEIGHTS = {
+    'Forward_KGV':0.20, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15,
+    'Bruttomarge':0.15, 'Operating_Margin':0.15, 'FCF_Marge':0.20,
+    'Strategic_Score':0.10
 }
-
-# ============================================
-# HELPER FUNKTIONEN
-# ============================================
 
 @st.cache_data(ttl=3600)
 def get_fear_greed():
@@ -89,41 +136,24 @@ def get_fear_greed():
         return r.json()["fear_and_greed"]["score"]
     except: return np.nan
 
-def get_cycle_score(): return 80
-def fear_greed_status(score): return "Neutral" if pd.isna(score) else "Extreme Fear" if score<20 else "Fear" if score<40 else "Neutral" if score<60 else "Greed" if score<80 else "Extreme Greed"
-def cycle_status(score): return "Spätzyklisch / Attraktiv" if score >= 80 else "Mid-Cycle" if score >= 60 else "Frühzyklisch / Vorsicht"
 def safe_get(info, key):
     try: value = info.get(key); return np.nan if value is None else value
     except: return np.nan
 
-def parse_number(text, kpi=None):
+def parse_number(text):
     if text is None: return np.nan
     text = str(text).strip().replace(",", ".")
-    try:
-        if "%" in text:
-            value = float(text.replace("%",""))
-            if kpi == "AI_Score": return value
-            return value / 100
-        return float(text)
+    try: return float(text)
     except: return np.nan
-
-def web_suche_kpi(ticker, kpi):
-    if kpi == "AI_Score": return None
-    return None
 
 def init_ticker(ticker):
     if ticker not in st.session_state.datenbank:
-        ai_score = AI_SCORES.get(ticker, np.nan)
+        meta = next((s for s in STOCK_UNIVERSE if s["ticker"]==ticker), {"ticker":ticker,"name":ticker})
         st.session_state.datenbank[ticker] = {
-            "daten":{"Ticker":ticker,"Name":NAMEN.get(ticker,ticker),"AI_Score":ai_score},
+            "daten":{"Ticker":ticker, **meta},
             "audit":{},
             "status":"neu"
         }
-        if not pd.isna(ai_score):
-            st.session_state.datenbank[ticker]["audit"]["AI_Score"] = {
-                "Wert":ai_score,"Quelle":"Initial hinterlegt",
-                "Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION
-            }
 
 def save_kpi(ticker,kpi,value,quelle):
     obj = st.session_state.datenbank[ticker]
@@ -133,38 +163,41 @@ def save_kpi(ticker,kpi,value,quelle):
 @st.cache_data(ttl=3600, show_spinner=False)
 def yahoo_laden(ticker):
     try:
-        time.sleep(1.2)
+        time.sleep(0.8)
         tk = yf.Ticker(ticker)
         info = tk.info or {}
         if not info: return None
+
+        price = safe_get(info,"currentPrice")
+        if pd.isna(price): price = safe_get(info,"regularMarketPrice")
+        if pd.isna(price): price = safe_get(info,"previousClose")
+        currency = safe_get(info, "currency")
+
         forward_kgv = safe_get(info, "forwardPE")
-        if pd.isna(forward_kgv): forward_kgv = safe_get(info, "trailingPE")
-        peg = safe_get(info, "pegRatio"); ev_ebitda = safe_get(info, "enterpriseToEbitda")
-        fcf = safe_get(info, "freeCashflow"); marketcap = safe_get(info, "marketCap"); umsatz = safe_get(info, "totalRevenue")
-        fcf_yield = fcf / marketcap if not pd.isna(fcf) and not pd.isna(marketcap) and marketcap!= 0 else np.nan
-        fcf_marge = fcf / umsatz if not pd.isna(fcf) and not pd.isna(umsatz) and umsatz!= 0 else np.nan
-        umsatz_wachstum = safe_get(info, "revenueGrowth"); op_marge = safe_get(info, "operatingMargins")
-        hist = tk.history(period="1y")
-        perf_52w = np.nan; rs_vs_nasdaq = np.nan; abstand_200 = np.nan; volat = np.nan
-        if len(hist) > 200:
-            perf_52w = hist["Close"].iloc[-1] / hist["Close"].iloc[0] - 1
-            sma200 = hist["Close"].tail(200).mean()
-            abstand_200 = hist["Close"].iloc[-1] / sma200 - 1
-            volat = hist["Close"].pct_change().std() * np.sqrt(252)
-            nasdaq = yf.Ticker("^IXIC").history(period="1y")
-            if len(nasdaq) > 0: rs_vs_nasdaq = perf_52w - (nasdaq["Close"].iloc[-1] / nasdaq["Close"].iloc[0] - 1)
+        ev_ebitda = safe_get(info, "enterpriseToEbitda")
+        umsatz_wachstum = safe_get(info, "revenueGrowth")
+        brutto = safe_get(info, "grossMargins")
+        op_marge = safe_get(info, "operatingMargins")
+
+        # 1. PERFORMANCE_52W ENTFERNT
+        fcf = safe_get(info,"freeCashflow")
+        revenue = safe_get(info,"totalRevenue")
+        if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0:
+            fcf_marge = fcf / revenue
+        else:
+            fcf_marge = np.nan
+
+        # 2. KEIN _info _financials mehr
         return {
-            "Forward_KGV":forward_kgv,"PEG":peg,"EV_EBITDA":ev_ebitda,"FCF_Yield":fcf_yield,
-            "Umsatz_Wachstum":umsatz_wachstum,"OpMarge":op_marge,"FCF_Marge":fcf_marge,"Performance_52W":perf_52w,
-            "RS_vs_Nasdaq":rs_vs_nasdaq, "Abstand_200":abstand_200, "Volatilitaet":volat
+            "Aktueller_Kurs": price, "Waehrung": currency,
+            "Forward_KGV":forward_kgv,"EV_EBITDA":ev_ebitda,"Umsatz_Wachstum":umsatz_wachstum,
+            "Bruttomarge":brutto,"Operating_Margin":op_marge,"FCF_Marge":fcf_marge
         }
     except: return None
 
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
     fehlend = [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi,np.nan))]
-    if ticker not in AI_SCORES and pd.isna(daten.get("AI_Score",np.nan)):
-        fehlend.append("AI_Score")
     return fehlend
 
 def baue_abfrage_queue():
@@ -178,168 +211,124 @@ def baue_abfrage_queue():
                 for kpi, wert in daten.items():
                     if not pd.isna(wert):
                         save_kpi(ticker, kpi, wert, "Yahoo")
+                segment = obj["daten"]["segment"]
+                save_kpi(ticker, "Strategic_Score", SEGMENT_SCORE.get(segment, 70), "Segment")
             obj["status"] = "geladen"
         fehlend = fehlende_kpis(ticker)
         for kpi in fehlend:
             queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
-# ============================================
-# SCREEN 1: SAMMELN - NUR 1 REIHE
-# ============================================
+def normalize(df, col, higher_better=True):
+    s = pd.to_numeric(df[col], errors="coerce")
+    valid = s.dropna()
+    if len(valid) < 2: return pd.Series(0.5, index=s.index)
+    x = s.copy()
+    if not higher_better: x = -x
+    rank = x.rank(pct=True)
+    return rank.fillna(0.5)
+
+def calculate_scores(df):
+    for col, w in WEIGHTS.items():
+        if col!= 'Strategic_Score':
+            lower_better = col in ['Forward_KGV','EV_EBITDA']
+            df[f'Norm_{col}'] = normalize(df, col, not lower_better) * w
+
+    finanz_gewichte = {k:v for k,v in WEIGHTS.items() if k!= 'Strategic_Score'}
+    df['Finanzscore'] = df[[f'Norm_{c}' for c in finanz_gewichte.keys()]].sum(axis=1) * 100
+
+    df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
+    df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
+
+    # 4. STRATEGISCHER_AUFSCHLAG ENTFERNT
+    df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9 + df['Strategic_Score'] * 0.1
+    df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität'])).round(1)
+
+    df = df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
+    df["Rang"] = df.index + 1
+    return df
+    def get_investment_rating(score):
+    if score >= 80: return "Strong Buy"
+    elif score >= 65: return "Buy"
+    elif score >= 45: return "Hold"
+    else: return "Sell"
 
 def screen_sammeln():
-    st.title(f"AI Infrastructure Return Ranking {VERSION}")
-    fear_greed = get_fear_greed(); cycle = get_cycle_score()
-    col1, col2, col3 = st.columns(3)
-    with col1: st.info(f"**Investment Thesis:**\nAI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION}")
-    with col2: st.info(f"**MARKTREGIME**\nFear & Greed: {fear_greed:.0f} / 100\nStatus: {fear_greed_status(fear_greed)}")
-    with col3: st.info(f"**ZYKLUS**\nCycle Score: {cycle:.0f} / 100\nStatus: {cycle_status(cycle)}")
-
-    st.subheader("Aktuelle Ticker Liste")
-    
-    # GEÄNDERT: Keine Spalte mehr. Nur 1 Reihe mit Format "Ticker - Name | AI:Score"
-    for ticker in st.session_state.aktien_liste:
-        init_ticker(ticker)
-    
-    ticker_reihe = " | ".join([
-        f"{t} - {NAMEN.get(t,t)} | AI:{st.session_state.datenbank[t]['daten'].get('AI_Score', '?')}"
-        for t in st.session_state.aktien_liste
-    ])
-    
-    st.text_area(
-        "Watchlist",
-        ticker_reihe,
-        height=100,
-        disabled=True
-    )
-
-    # AI SCORE ÜBERSICHT bleibt
-    score_text = " | ".join([f"{t.split('.')[0]}:{s}" for t,s in AI_SCORES.items()])
-    st.text_area(
-        "Hinterlegte AI Strategische Scores",
-        score_text,
-        height=70,
-        disabled=True
-    )
-
-    st.caption("Nur neue Aktien benötigen manuelle AI-Score Eingabe")
-    st.divider()
-
-    neuer_ticker = st.text_input("Einzeln hinzufügen", placeholder="z.B. INTC")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("➕ Hinzufügen", use_container_width=True):
-            if neuer_ticker:
-                neuer_ticker = neuer_ticker.upper().strip()
-                if neuer_ticker in st.session_state.aktien_liste: st.warning(f"{neuer_ticker} ist bereits in der Liste")
-                else:
-                    with st.spinner(f"Prüfe {neuer_ticker}..."):
-                        if yahoo_laden(neuer_ticker) is None: st.error(f"{neuer_ticker} nicht gefunden")
-                        else: st.session_state.aktien_liste.append(neuer_ticker); st.success(f"{neuer_ticker} hinzugefügt"); st.rerun()
-    with col2:
-        if st.button("🗑️ Letzten entfernen", use_container_width=True):
-            if len(st.session_state.aktien_liste) > 1: entfernt = st.session_state.aktien_liste.pop(); st.success(f"{entfernt} entfernt"); st.rerun()
-
+    st.title(f"AI Infrastructure Ranking {VERSION}")
+    fear_greed = get_fear_greed()
+    st.info(f"**Investment Thesis:** AI Infrastructure Cycle: {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed:.0f}")
+    st.subheader(f"Aktuelles Universum: {len(st.session_state.aktien_liste)} Werte")
+    df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
+    st.dataframe(df_meta, use_container_width=True, hide_index=True)
     st.divider()
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
-        with st.spinner("Lade Yahoo Daten und baue Abfrageliste..."):
+        with st.spinner("Lade Yahoo Daten..."):
             baue_abfrage_queue()
         st.session_state.modus = "uebersicht"; st.rerun()
 
-# Screens 2-4 unverändert v17.3.2
 def screen_uebersicht():
-    st.title(f"AI Infrastructure Return Ranking {VERSION}")
+    st.title(f"AI Infrastructure Ranking {VERSION}")
     st.subheader("2. Daten-Übersicht")
-    cols = st.columns(2)
-    with cols[0]:
-        st.write("### Gefundene Daten")
-        for ticker in st.session_state.aktien_liste:
-            voll = len(PFLICHT_KPIS) - len([k for k in PFLICHT_KPIS if pd.isna(st.session_state.datenbank[ticker]["daten"].get(k,np.nan))])
-            st.write(f"{ticker:<8} {voll}/{len(PFLICHT_KPIS)} KPIs")
-    with cols[1]:
-        st.write("### Fehlende Eingaben")
-        if len(st.session_state.abfrage_queue) == 0: st.success("Alle Daten vorhanden")
-        else:
-            for ticker, kpi in st.session_state.abfrage_queue: st.write(f"{ticker} {KPI_LABELS[kpi]}")
-    st.divider()
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("▶️ Jetzt Eingabe starten", type="primary", use_container_width=True):
-            if len(st.session_state.abfrage_queue) > 0: st.session_state.modus = "abfrage"
-            else: st.session_state.modus = "ranking"
-            st.rerun()
-    with col2:
-        if st.button("⬅️ Zurück zur Liste", use_container_width=True): st.session_state.modus = "sammeln"; st.rerun()
+    st.write(f"Fehlende KPIs: {len(st.session_state.abfrage_queue)}")
+    if st.button("▶️ Zum Ranking", type="primary"): st.session_state.modus = "ranking"; st.rerun()
+    if st.button("⬅️ Zurück"): st.session_state.modus = "sammeln"; st.rerun()
 
 def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0: st.session_state.modus = "ranking"; st.rerun(); return
     ticker, kpi = st.session_state.abfrage_queue[0]
-    st.title(f"AI Infrastructure Return Ranking {VERSION}")
-    st.progress(1 - len(st.session_state.abfrage_queue)/max(1, len(st.session_state.abfrage_queue)+1))
-    st.error(f"❗ {ticker} - {NAMEN.get(ticker,ticker)}")
-    st.warning(f"Fehlender Wert: {KPI_LABELS[kpi]}")
-    st.caption(f"Noch {len(st.session_state.abfrage_queue)} Abfragen offen")
-    st.divider()
-    st.write(f"### {KPI_LABELS[kpi]}"); st.info(KPI_HINTS[kpi])
-    input_key = f"input_{ticker}_{kpi}"
-    if input_key not in st.session_state: st.session_state[input_key] = ""
-    eingabe = st.text_input("Wert eingeben", key=input_key, placeholder="z.B. 0.08 oder 85")
-    col1,col2,col3 = st.columns(3)
+    st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
+    eingabe = st.text_input("Wert eingeben")
+    col1,col2 = st.columns(2)
     with col1:
-        if st.button("💾 Speichern", key=f"save_{ticker}_{kpi}"):
-            raw = eingabe; wert = parse_number(raw, kpi)
-            if pd.isna(wert): st.error(f"Keine gültige Zahl: '{raw}'"); return
-            save_kpi(ticker, kpi, wert, "Manuell"); del st.session_state[input_key]
+        if st.button("💾 Speichern"):
+            wert = parse_number(eingabe)
+            if pd.isna(wert): st.error("Keine gültige Zahl"); return
+            save_kpi(ticker, kpi, wert, "Manuell")
             st.session_state.abfrage_queue.pop(0); st.rerun()
     with col2:
-        if st.button("🔍 Websuche", key=f"web_{ticker}_{kpi}", disabled=(kpi=="AI_Score")): st.error("Für AI_Score keine Websuche")
-    with col3:
-        if st.button("⏭️ Überspringen", key=f"skip_{ticker}_{kpi}"):
+        if st.button("⏭️ Überspringen"):
             save_kpi(ticker, kpi, np.nan, "Übersprungen")
-            if input_key in st.session_state: del st.session_state[input_key]
             st.session_state.abfrage_queue.pop(0); st.rerun()
 
 def screen_ranking():
-    st.title(f"AI Infrastructure Return Ranking {VERSION}")
-    st.success("Auswertung läuft...")
+    st.title(f"AI Infrastructure Ranking {VERSION}")
     liste=[]
-    for ticker in st.session_state.aktien_liste: liste.append(st.session_state.datenbank[ticker]["daten"])
-    if len(liste)<2: st.error("Zu wenige Aktien"); st.button("Zurück", on_click=lambda: setattr(st.session_state, 'modus', 'sammeln')); st.rerun(); return
+    for ticker in st.session_state.aktien_liste:
+        liste.append(st.session_state.datenbank[ticker]["daten"])
     df=pd.DataFrame(liste)
-    def percentile_score(series, higher_better=True):
-        s = pd.to_numeric(series, errors="coerce"); valid = s.dropna()
-        if len(valid)<2: return pd.Series(50, index=s.index)
-        rank = valid.rank(pct=True);
-        if not higher_better: rank = 1-rank
-        result=pd.Series(50, index=s.index, dtype=float); result.loc[valid.index]=rank*100; return result
-    kgv = percentile_score(df["Forward_KGV"], False); peg = percentile_score(df["PEG"], False)
-    ev = percentile_score(df["EV_EBITDA"], False); fcf = percentile_score(df["FCF_Yield"], True)
-    df["Bewertung_Score"]=(kgv*0.35+peg*0.25+ev*0.20+fcf*0.20)
-    growth=percentile_score(df["Umsatz_Wachstum"], True); marge=percentile_score(df["OpMarge"], True); fcfm=percentile_score(df["FCF_Marge"], True)
-    df["Qualitaet_Score"]=(growth*0.35+marge*0.35+fcfm*0.30)
-    perf = percentile_score(df["Performance_52W"], True); rs = percentile_score(df["RS_vs_Nasdaq"], True)
-    trend = percentile_score(df["Abstand_200"], True); vol = percentile_score(df["Volatilitaet"], False)
-    df["Momentum_Score"]=(perf*0.40 + rs*0.30 + trend*0.20 + vol*0.10)
-    df["Strategie_Score"] = df["AI_Score"].fillna(50)
-    df["AI_Score_Status"] = np.where(df["AI_Score"].isna(), "fehlend", "hinterlegt")
-    df["Rohscore"]=(df["Bewertung_Score"]*0.30 + df["Qualitaet_Score"]*0.30 + df["Momentum_Score"]*0.20 + df["Strategie_Score"]*0.20)
-    daten_quali = df[PFLICHT_KPIS].notna().sum(axis=1) / len(PFLICHT_KPIS)
-    df["Gesamtscore"]=(df["Rohscore"] * (0.6 + 0.4 * daten_quali)).round(1)
-    df["Risiko"] = df["Volatilitaet"].apply(
-        lambda x: "unbekannt" if pd.isna(x) else "hoch" if x>0.6 else "mittel" if x>0.4 else "niedrig"
-    )
-    df=df.sort_values("Gesamtscore", ascending=False).reset_index(drop=True)
-    ratings=["STRONG BUY" if i < len(df)*0.2 else "BUY" if i < len(df)*0.5 else "HOLD" for i in range(len(df))]
-    df["Rating"]=ratings; df["Datenqualitaet"] = (daten_quali*100).round(0).astype(int).astype(str) + "%"
-    st.subheader("Ranking")
-    st.dataframe(df[["Ticker","Name","Gesamtscore","AI_Score","AI_Score_Status","Bewertung_Score","Qualitaet_Score","Momentum_Score","Risiko","Datenqualitaet"]].round(1), use_container_width=True, hide_index=True)
+    if len(df)<2:
+        st.error("Zu wenige Aktien")
+        if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
+        return
+
+    df = calculate_scores(df)
+    df["Investment_Rating"] = df["Gesamtscore"].apply(get_investment_rating)
+
+    st.subheader("Ranking v7.37 KISS")
+    # 4. STRATEGISCHER_AUFSCHLAG AUS ANZEIGE ENTFERNT
+    show_cols = ['Rang','Ticker','name','flag','country','region','segment','index',
+                 'Aktueller_Kurs','Waehrung','Forward_KGV','EV_EBITDA','Umsatz_Wachstum',
+                 'Bruttomarge','Operating_Margin','FCF_Marge',
+                 'Strategic_Score','Finanzscore','Datenqualität','Gesamtscore','Investment_Rating']
+    show_cols = [c for c in show_cols if c in df.columns]
+    st.dataframe(df[show_cols].round(2), use_container_width=True, hide_index=True)
+
     output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="AI_Ranking_v17.3.4")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v17.3.4_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.37")
+        pd.DataFrame(STOCK_UNIVERSE).to_excel(writer, index=False, sheet_name="Universum")
+        df[['Ticker','name','Datenpunkte','Datenqualität']].to_excel(writer, index=False, sheet_name="Datenqualität")
+        audit_rows = []
+        for ticker, obj in st.session_state.datenbank.items():
+            for kpi, audit in obj["audit"].items():
+                audit_rows.append({"Ticker":ticker, "KPI":kpi, **audit})
+        pd.DataFrame(audit_rows).to_excel(writer, index=False, sheet_name="Audit")
+
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.37_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 CSV herunterladen", csv, file_name=f"AI_Ranking_v7.37_{datetime.now().strftime('%Y-%m-%d')}.csv", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
-# APP START
 if st.session_state.modus == "sammeln": screen_sammeln()
 elif st.session_state.modus == "uebersicht": screen_uebersicht()
 elif st.session_state.modus == "abfrage": screen_abfrage()
