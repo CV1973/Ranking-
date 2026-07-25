@@ -23,8 +23,8 @@ def check_password():
     else: return True
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.8", layout="wide")
-VERSION = "v7.45.8"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.45.10", layout="wide")
+VERSION = "v7.45.10"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFAENGER GEWINNEN"
 
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
@@ -35,20 +35,18 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 STOCK_UNIVERSE = [
-{"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
-{"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
 {"ticker":"A000660.KS", "name":"SK Hynix", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
 {"ticker":"A005930.KS", "name":"Samsung Electronics", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfaenger"},
-{"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
 {"ticker":"2353.TWO", "name":"Quanta Computer", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
+{"ticker":"2303.TWO", "name":"UMC", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfaenger"},
 {"ticker":"2392.TWO", "name":"Wiwynn", "country":"Taiwan", "flag":"🇹🇼", "segment":"Server / DC Hardware", "typ":"Empfaenger"},
 {"ticker":"ASMI.AS", "name":"ASM International", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
-{"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
 {"ticker":"SCHN.PA", "name":"Schneider Electric", "country":"France", "flag":"🇫🇷", "segment":"Power / Cooling", "typ":"Empfaenger"},
+{"ticker":"BE.AS", "name":"Besi", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfaenger"},
 {"ticker":"6967.T", "name":"Fujikura", "country":"Japan", "flag":"🇯🇵", "segment":"Networking / Optical", "typ":"Empfaenger"},
 {"ticker":"ANSS", "name":"Ansys", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
+{"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfaenger"},
 {"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
 ]
 
 if len(st.session_state.aktien_liste) == 0: st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
@@ -57,7 +55,7 @@ WEIGHTS = {
     "Empfaenger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
     "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
-} # <-- HIER FEHLTE DIE KLAMMER
+}
 
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
@@ -80,33 +78,35 @@ def save_kpi(ticker,kpi,value,quelle):
     obj["daten"][kpi]=value
     obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def yahoo_laden(ticker, retry=2):
+def yahoo_laden(ticker, retry=3): # KEIN CACHE
     result = {k: np.nan for k in ["Aktueller_Kurs","Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]}
+    delay = 8.0 if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']) else 2.0
+
     for attempt in range(retry):
         try:
-            if any(x in ticker for x in ['.KS','.T','.AS','.PA','.SW','.TW','.DE']):
-                time.sleep(4.0)
-            else:
-                time.sleep(1.5)
+            time.sleep(delay)
             tk = yf.Ticker(ticker)
-            info = tk.info
-            result["Aktueller_Kurs"] = info.get("currentPrice") or info.get("regularMarketPrice", np.nan)
-            result["Forward_KGV"] = info.get("forwardPE", np.nan)
-            result["EV_EBITDA"] = info.get("enterpriseToEbitda", np.nan)
-            result["Umsatz_Wachstum"] = info.get("revenueGrowth", np.nan)
-            result["Bruttomarge"] = info.get("grossMargins", np.nan)
-            result["Operating_Margin"] = info.get("operatingMargins", np.nan)
-            fin = tk.financials; cf = tk.cashflow
-            fcf = info.get("freeCashflow", np.nan); revenue = info.get("totalRevenue", np.nan)
-            if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0,0]
-            if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
+
+            result["Aktueller_Kurs"] = tk.info.get("currentPrice") or tk.info.get("regularMarketPrice", np.nan)
+            time.sleep(0.5)
+            result["Forward_KGV"] = tk.info.get("forwardPE", np.nan)
+            time.sleep(0.5)
+            result["EV_EBITDA"] = tk.info.get("enterpriseToEbitda", np.nan)
+            time.sleep(0.5)
+            result["Umsatz_Wachstum"] = tk.info.get("revenueGrowth", np.nan)
+            time.sleep(0.5)
+            result["Bruttomarge"] = tk.info.get("grossMargins", np.nan)
+            time.sleep(0.5)
+            result["Operating_Margin"] = tk.info.get("operatingMargins", np.nan)
+            time.sleep(0.5)
+
+            fcf = tk.info.get("freeCashflow", np.nan); revenue = tk.info.get("totalRevenue", np.nan)
             if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0: result["FCF_Marge"] = fcf / revenue
+
             if not all(pd.isna(v) for v in result.values()):
                 return result
         except:
-            if attempt < retry-1: time.sleep(5)
-            else: return None
+            time.sleep(10)
     return None
 
 def fehlende_kpis(ticker):
@@ -179,7 +179,7 @@ def screen_sammeln():
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.table(df_meta[['ticker','name','flag','segment','typ']])
     if st.button("✅ Auswertung starten", type="primary"):
-        with st.spinner("Lade Yahoo Daten... 4s Delay fuer Asien/EU"):
+        with st.spinner("Lade Yahoo Daten... 8s Delay fuer Asien/EU"):
             baue_abfrage_queue()
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
