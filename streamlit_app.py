@@ -1,6 +1,6 @@
 # ============================================
 # AI Infrastructure Ranking v7.45.4-US-ONLY
-# FIX: ANSS entfernt | SKHYY ADR hinzugefügt | Passwort schmaler
+# FIX: ANSS entfernt | SKHY ADR hinzugefügt | Passwort schmaler
 # AXIOM: CAPEX BOOM BIS Q4 2027
 # ============================================
 
@@ -54,7 +54,7 @@ if st.session_state.version_loaded!= VERSION:
 
 # ============================================
 # 2. STOCK_UNIVERSE v7.45.4-US - 37 WERTE
-# ANSS ENTFERNT, SKHYY HINZUGEFÜGT
+# ANSS ENTFERNT, SKHY HINZUGEFÜGT
 # ============================================
 STOCK_UNIVERSE = [
 {"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
@@ -63,7 +63,7 @@ STOCK_UNIVERSE = [
 {"ticker":"MRVL", "name":"Marvell", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
 {"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
 {"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
-{"ticker":"SKHYY", "name":"SK Hynix ADR", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfänger"}, # NEU
+{"ticker":"SKHY", "name":"SK Hynix ADR", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfänger"}, # NEU
 {"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
 {"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
 {"ticker":"ASML", "name":"ASML ADR", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfänger"},
