@@ -104,6 +104,7 @@ WEIGHTS = {
     "Empfänger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
     "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
     "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
+}
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
 KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
 
