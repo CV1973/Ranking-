@@ -224,7 +224,7 @@ def calculate_scores(df):
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-  def get_investment_rating(score, vollstaendig):
+ def get_investment_rating(score, vollstaendig):
     if pd.isna(score):
         return "N/A"
     if not vollstaendig:
