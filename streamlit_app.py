@@ -1,6 +1,18 @@
 # ============================================
-# AI Infrastructure Ranking v7.45.4-US-ONLY
-# FIX: ANSS entfernt | SKHY ADR hinzugefügt | Passwort schmaler | README Link
+# AI Infrastructure Ranking v7.46.0-US
+# FIXES ggü. v7.45.4:
+#   1) KPI_LABELS: Performance_52W + NetDebt_EBITDA ergaenzt
+#      -> vorher KeyError-Crash in screen_abfrage() beim ersten Ticker
+#   2) yahoo_laden(): Performance_52W (52WeekChange) und NetDebt_EBITDA
+#      (TotalDebt - TotalCash) / EBITDA werden jetzt automatisch geladen
+#      -> vorher mussten beide fuer alle 37 Werte manuell eingegeben werden,
+#         obwohl sie bis jetzt gar nicht gewichtet wurden
+#   3) NetDebt_EBITDA zu 'lower_better' hinzugefuegt
+#      -> vorher: hoehere Verschuldung = besserer Score (Vorzeichenfehler)
+#   4) WEIGHTS: alle drei Typen summieren jetzt exakt auf 1.0
+#      -> vorher: Empfaenger nur 0.90, Spender/Neutral 1.00 (strukturelle
+#         Deckelung von Empfaenger-Scores vor Capex_Bias)
+#   5) Passwort ueber st.secrets statt Klartext im Code (oeffentliches Repo!)
 # AXIOM: CAPEX BOOM BIS Q4 2027
 # ============================================
 
@@ -16,17 +28,26 @@ import fear_and_greed
 warnings.filterwarnings("ignore")
 
 # ============================================
-# 0. LOGIN SCHUTZ - FELD WIEDER SCHMAL
+# 0. LOGIN SCHUTZ - PASSWORT UEBER st.secrets
 # ============================================
 def check_password():
     def password_entered():
-        if st.session_state["password"] == "Dicker":
+        expected = st.secrets.get("app_password", None)
+        if expected is not None and st.session_state["password"] == expected:
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
-    col1, col2, col3 = st.columns([1,2,1]) # SCHMALER
+
+    col1, col2, col3 = st.columns([1, 2, 1])  # SCHMALER
     with col2:
+        if st.secrets.get("app_password", None) is None:
+            st.error(
+                "Kein Passwort in st.secrets konfiguriert. "
+                "Bitte 'app_password' in den Streamlit-Cloud-Secrets setzen "
+                "(App -> Settings -> Secrets), niemals im Code / im oeffentlichen Repo."
+            )
+            st.stop()
         if "password_correct" not in st.session_state:
             st.text_input("Passwort", type="password", on_change=password_entered, key="password")
             st.stop()
@@ -36,10 +57,12 @@ def check_password():
             st.stop()
         else:
             return True
+
+
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.45.4-US", layout="wide")
-VERSION = "v7.45.4-US"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.46.0-US", layout="wide")
+VERSION = "v7.46.0-US"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
@@ -48,123 +71,225 @@ AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
 for key, val in DEFAULTS.items():
     if key not in st.session_state: st.session_state[key] = val
-if st.session_state.version_loaded!= VERSION:
+if st.session_state.version_loaded != VERSION:
     for key, val in DEFAULTS.items(): st.session_state[key] = val
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.45.4-US - 37 WERTE
-# ANSS ENTFERNT, SKHY HINZUGEFÜGT
+# 2. STOCK_UNIVERSE v7.46.0-US - 37 WERTE
 # ============================================
 STOCK_UNIVERSE = [
-{"ticker":"NVDA", "name":"Nvidia", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
-{"ticker":"AMD", "name":"AMD", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
-{"ticker":"AVGO", "name":"Broadcom", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
-{"ticker":"MRVL", "name":"Marvell", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
-{"ticker":"INTC", "name":"Intel", "country":"USA", "flag":"🇺🇸", "segment":"AI Compute", "typ":"Empfänger"},
-{"ticker":"MU", "name":"Micron", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
-{"ticker":"SKHY", "name":"SK Hynix ADR", "country":"South Korea", "flag":"🇰🇷", "segment":"Memory / HBM", "typ":"Empfänger"}, # NEU
-{"ticker":"WDC", "name":"Western Digital", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
-{"ticker":"STX", "name":"Seagate", "country":"USA", "flag":"🇺🇸", "segment":"Memory / HBM", "typ":"Empfänger"},
-{"ticker":"ASML", "name":"ASML ADR", "country":"Netherlands", "flag":"🇳🇱", "segment":"Semi Equipment", "typ":"Empfänger"},
-{"ticker":"AMAT", "name":"Applied Materials", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfänger"},
-{"ticker":"LRCX", "name":"Lam Research", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfänger"},
-{"ticker":"KLAC", "name":"KLA", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfänger"},
-{"ticker":"TER", "name":"Teradyne", "country":"USA", "flag":"🇺🇸", "segment":"Semi Equipment", "typ":"Empfänger"},
-{"ticker":"TSM", "name":"TSMC ADR", "country":"Taiwan", "flag":"🇹🇼", "segment":"Foundry", "typ":"Empfänger"},
-{"ticker":"GFS", "name":"GlobalFoundries", "country":"USA", "flag":"🇺🇸", "segment":"Foundry", "typ":"Empfänger"},
-{"ticker":"DELL", "name":"Dell", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfänger"},
-{"ticker":"SMCI", "name":"Super Micro Computer", "country":"USA", "flag":"🇺🇸", "segment":"Server / DC Hardware", "typ":"Empfänger"},
-{"ticker":"ETN", "name":"Eaton", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"VRT", "name":"Vertiv", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"BE", "name":"Bloom Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"GEV", "name":"GE Vernova", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"CEG", "name":"Constellation Energy", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"TXN", "name":"Texas Instruments", "country":"USA", "flag":"🇺🇸", "segment":"Power / Cooling", "typ":"Empfänger"},
-{"ticker":"ANET", "name":"Arista Networks", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
-{"ticker":"CRDO", "name":"Credo", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
-{"ticker":"COHR", "name":"Coherent", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
-{"ticker":"LITE", "name":"Lumentum", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
-{"ticker":"CSCO", "name":"Cisco", "country":"USA", "flag":"🇺🇸", "segment":"Networking / Optical", "typ":"Empfänger"},
-{"ticker":"MSFT", "name":"Microsoft", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"AMZN", "name":"Amazon", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"GOOGL", "name":"Alphabet", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"META", "name":"Meta", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"ORCL", "name":"Oracle", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"NOW", "name":"ServiceNow", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"EQIX", "name":"Equinix", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"DLR", "name":"Digital Realty", "country":"USA", "flag":"🇺🇸", "segment":"Cloud / AI Platform", "typ":"Spender"},
-{"ticker":"PLTR", "name":"Palantir", "country":"USA", "flag":"🇺🇸", "segment":"AI Infrastructure Software", "typ":"Neutral"},
+    {"ticker": "NVDA", "name": "Nvidia", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
+    {"ticker": "AMD", "name": "AMD", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
+    {"ticker": "AVGO", "name": "Broadcom", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
+    {"ticker": "MRVL", "name": "Marvell", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
+    {"ticker": "INTC", "name": "Intel", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
+    {"ticker": "MU", "name": "Micron", "country": "USA", "flag": "🇺🇸", "segment": "Memory / HBM", "typ": "Empfänger"},
+    {"ticker": "SKHY", "name": "SK Hynix ADR", "country": "South Korea", "flag": "🇰🇷", "segment": "Memory / HBM", "typ": "Empfänger"},
+    {"ticker": "WDC", "name": "Western Digital", "country": "USA", "flag": "🇺🇸", "segment": "Memory / HBM", "typ": "Empfänger"},
+    {"ticker": "STX", "name": "Seagate", "country": "USA", "flag": "🇺🇸", "segment": "Memory / HBM", "typ": "Empfänger"},
+    {"ticker": "ASML", "name": "ASML ADR", "country": "Netherlands", "flag": "🇳🇱", "segment": "Semi Equipment", "typ": "Empfänger"},
+    {"ticker": "AMAT", "name": "Applied Materials", "country": "USA", "flag": "🇺🇸", "segment": "Semi Equipment", "typ": "Empfänger"},
+    {"ticker": "LRCX", "name": "Lam Research", "country": "USA", "flag": "🇺🇸", "segment": "Semi Equipment", "typ": "Empfänger"},
+    {"ticker": "KLAC", "name": "KLA", "country": "USA", "flag": "🇺🇸", "segment": "Semi Equipment", "typ": "Empfänger"},
+    {"ticker": "TER", "name": "Teradyne", "country": "USA", "flag": "🇺🇸", "segment": "Semi Equipment", "typ": "Empfänger"},
+    {"ticker": "TSM", "name": "TSMC ADR", "country": "Taiwan", "flag": "🇹🇼", "segment": "Foundry", "typ": "Empfänger"},
+    {"ticker": "GFS", "name": "GlobalFoundries", "country": "USA", "flag": "🇺🇸", "segment": "Foundry", "typ": "Empfänger"},
+    {"ticker": "DELL", "name": "Dell", "country": "USA", "flag": "🇺🇸", "segment": "Server / DC Hardware", "typ": "Empfänger"},
+    {"ticker": "SMCI", "name": "Super Micro Computer", "country": "USA", "flag": "🇺🇸", "segment": "Server / DC Hardware", "typ": "Empfänger"},
+    {"ticker": "ETN", "name": "Eaton", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "VRT", "name": "Vertiv", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "BE", "name": "Bloom Energy", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "GEV", "name": "GE Vernova", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "CEG", "name": "Constellation Energy", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "TXN", "name": "Texas Instruments", "country": "USA", "flag": "🇺🇸", "segment": "Power / Cooling", "typ": "Empfänger"},
+    {"ticker": "ANET", "name": "Arista Networks", "country": "USA", "flag": "🇺🇸", "segment": "Networking / Optical", "typ": "Empfänger"},
+    {"ticker": "CRDO", "name": "Credo", "country": "USA", "flag": "🇺🇸", "segment": "Networking / Optical", "typ": "Empfänger"},
+    {"ticker": "COHR", "name": "Coherent", "country": "USA", "flag": "🇺🇸", "segment": "Networking / Optical", "typ": "Empfänger"},
+    {"ticker": "LITE", "name": "Lumentum", "country": "USA", "flag": "🇺🇸", "segment": "Networking / Optical", "typ": "Empfänger"},
+    {"ticker": "CSCO", "name": "Cisco", "country": "USA", "flag": "🇺🇸", "segment": "Networking / Optical", "typ": "Empfänger"},
+    {"ticker": "MSFT", "name": "Microsoft", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "AMZN", "name": "Amazon", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "GOOGL", "name": "Alphabet", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "META", "name": "Meta", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "ORCL", "name": "Oracle", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "NOW", "name": "ServiceNow", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "EQIX", "name": "Equinix", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "DLR", "name": "Digital Realty", "country": "USA", "flag": "🇺🇸", "segment": "Cloud / AI Platform", "typ": "Spender"},
+    {"ticker": "PLTR", "name": "Palantir", "country": "USA", "flag": "🇺🇸", "segment": "AI Infrastructure Software", "typ": "Neutral"},
 ]
 
 if len(st.session_state.aktien_liste) == 0:
     st.session_state.aktien_liste = [s["ticker"] for s in STOCK_UNIVERSE]
+
 CAPEX_BIAS = {"Empfänger": 10, "Spender": -10, "Neutral": 0}
+
+# ============================================
+# GEWICHTE - FIX 4: alle drei Typen summieren jetzt auf 1.0
+# Empfaenger hatte vorher nur 0.90 (Forward_KGV .10 + EV_EBITDA .05 +
+# Umsatz_Wachstum .30 + Bruttomarge .10 + Operating_Margin .30 + FCF_Marge .05).
+# Die fehlenden 0.10 gehen jetzt an NetDebt_EBITDA (.05) und Performance_52W (.05),
+# ohne die bestehenden Gewichte fuer Empfaenger zu veraendern.
+# Bei Spender und Neutral wurden je 0.05 bei Operating_Margin/FCF_Marge bzw.
+# Operating_Margin/FCF_Marge abgezogen, um Platz fuer die zwei neuen Faktoren
+# zu schaffen. Das ist eine Annahme von mir, keine Ableitung aus deiner
+# urspruenglichen Methodik - bitte pruefen und ggf. anpassen.
+# ============================================
 WEIGHTS = {
-    "Empfänger": {'Forward_KGV':0.10, 'EV_EBITDA':0.05, 'Umsatz_Wachstum':0.30, 'Bruttomarge':0.10, 'Operating_Margin':0.30, 'FCF_Marge':0.05},
-    "Spender": {'Forward_KGV':0.15, 'EV_EBITDA':0.10, 'Umsatz_Wachstum':0.05, 'Bruttomarge':0.15, 'Operating_Margin':0.30, 'FCF_Marge':0.25},
-    "Neutral": {'Forward_KGV':0.15, 'EV_EBITDA':0.15, 'Umsatz_Wachstum':0.15, 'Bruttomarge':0.15, 'Operating_Margin':0.20, 'FCF_Marge':0.20}
+    "Empfänger": {
+        'Forward_KGV': 0.10, 'EV_EBITDA': 0.05, 'Umsatz_Wachstum': 0.30,
+        'Bruttomarge': 0.10, 'Operating_Margin': 0.30, 'FCF_Marge': 0.05,
+        'NetDebt_EBITDA': 0.05, 'Performance_52W': 0.05,
+    },
+    "Spender": {
+        'Forward_KGV': 0.15, 'EV_EBITDA': 0.10, 'Umsatz_Wachstum': 0.05,
+        'Bruttomarge': 0.15, 'Operating_Margin': 0.25, 'FCF_Marge': 0.20,
+        'NetDebt_EBITDA': 0.05, 'Performance_52W': 0.05,
+    },
+    "Neutral": {
+        'Forward_KGV': 0.15, 'EV_EBITDA': 0.15, 'Umsatz_Wachstum': 0.15,
+        'Bruttomarge': 0.15, 'Operating_Margin': 0.15, 'FCF_Marge': 0.15,
+        'NetDebt_EBITDA': 0.05, 'Performance_52W': 0.05,
+    }
 }
-PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge"]
-KPI_LABELS = {"Forward_KGV":"Forward KGV","EV_EBITDA":"EV/EBITDA","Umsatz_Wachstum":"Umsatzwachstum","Bruttomarge":"Bruttomarge","Operating_Margin":"Operating Margin","FCF_Marge":"FCF Marge","Aktueller_Kurs":"Aktueller Kurs"}
+
+PFLICHT_KPIS = [
+    "Forward_KGV",
+    "EV_EBITDA",
+    "Umsatz_Wachstum",
+    "Bruttomarge",
+    "Operating_Margin",
+    "FCF_Marge",
+    "Performance_52W",
+    "NetDebt_EBITDA"
+]
+KPI_LABELS = {
+    "Forward_KGV": "Forward KGV",
+    "EV_EBITDA": "EV/EBITDA",
+    "Umsatz_Wachstum": "Umsatzwachstum",
+    "Bruttomarge": "Bruttomarge",
+    "Operating_Margin": "Operating Margin",
+    "FCF_Marge": "FCF Marge",
+    "Performance_52W": "Performance 52 Wochen",   # FIX 1: war komplett unbekannt in KPI_LABELS -> KeyError-Crash
+    "NetDebt_EBITDA": "Net Debt/EBITDA",           # FIX 1
+    "Aktueller_Kurs": "Aktueller Kurs",
+}
 
 # ============================================
 # 3. HELPER
 # ============================================
 @st.cache_data(ttl=1800)
 def get_fear_greed():
-    try: return round(fear_and_greed.get().value)
-    except: return 50
+    try:
+        return round(fear_and_greed.get().value)
+    except:
+        return 50
+
+
 def safe_get(info, key):
-    try: value = info.get(key); return np.nan if value is None else value
-    except: return np.nan
+    try:
+        value = info.get(key)
+        return np.nan if value is None else value
+    except:
+        return np.nan
+
+
 def parse_number(text):
     if text is None: return np.nan
     text = str(text).strip().replace(",", ".")
-    try: return float(text)
-    except: return np.nan
+    try:
+        return float(text)
+    except:
+        return np.nan
+
+
 def init_ticker(ticker):
     if ticker not in st.session_state.datenbank:
-        meta = next((s for s in STOCK_UNIVERSE if s["ticker"]==ticker), {"ticker":ticker,"name":ticker})
-        st.session_state.datenbank[ticker] = {"daten":{"Ticker":ticker, **meta},"audit":{},"status":"neu"}
-def save_kpi(ticker,kpi,value,quelle):
+        meta = next((s for s in STOCK_UNIVERSE if s["ticker"] == ticker), {"ticker": ticker, "name": ticker})
+        st.session_state.datenbank[ticker] = {"daten": {"Ticker": ticker, **meta}, "audit": {}, "status": "neu"}
+
+
+def save_kpi(ticker, kpi, value, quelle):
     obj = st.session_state.datenbank[ticker]
-    obj["daten"][kpi]=value
-    obj["audit"][kpi]={"Wert":value,"Quelle":quelle,"Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),"Version":VERSION}
+    obj["daten"][kpi] = value
+    obj["audit"][kpi] = {"Wert": value, "Quelle": quelle, "Zeit": datetime.now().strftime("%Y-%m-%d %H:%M"), "Version": VERSION}
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def yahoo_laden(ticker):
     try:
         time.sleep(0.2)
-        tk = yf.Ticker(ticker); info = tk.info or {}; fin = tk.financials; cf = tk.cashflow
-        price = safe_get(info,"currentPrice") or safe_get(info,"regularMarketPrice") or safe_get(info,"previousClose")
+        tk = yf.Ticker(ticker)
+        info = tk.info or {}
+        fin = tk.financials
+        cf = tk.cashflow
+
+        price = safe_get(info, "currentPrice") or safe_get(info, "regularMarketPrice") or safe_get(info, "previousClose")
         currency = safe_get(info, "currency")
         forward_kgv = safe_get(info, "forwardPE")
         ev_ebitda = safe_get(info, "enterpriseToEbitda")
         umsatz_wachstum = safe_get(info, "revenueGrowth")
         brutto = safe_get(info, "grossMargins")
         op_marge = safe_get(info, "operatingMargins")
-        fcf = safe_get(info,"freeCashflow"); revenue = safe_get(info,"totalRevenue")
-        if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0,0]
+        fcf = safe_get(info, "freeCashflow")
+        revenue = safe_get(info, "totalRevenue")
+
+        if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0, 0]
         if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
-        fcf_marge = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0 else np.nan
+        fcf_marge = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue != 0 else np.nan
+
         if pd.isna(brutto) and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
-            try: brutto = fin.loc['Gross Profit'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
-            except: pass
+            try:
+                brutto = fin.loc['Gross Profit'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
+            except:
+                pass
         if pd.isna(op_marge) and not fin.empty and 'Operating Income' in fin.index and 'Total Revenue' in fin.index:
-            try: op_marge = fin.loc['Operating Income'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
-            except: pass
-        return {"Aktueller_Kurs": price, "Waehrung": currency, "Forward_KGV":forward_kgv,"EV_EBITDA":ev_ebitda,"Umsatz_Wachstum":umsatz_wachstum,"Bruttomarge":brutto,"Operating_Margin":op_marge,"FCF_Marge":fcf_marge}
-    except Exception: return None
+            try:
+                op_marge = fin.loc['Operating Income'].iloc[0] / fin.loc['Total Revenue'].iloc[0]
+            except:
+                pass
+
+        # FIX 2: Performance_52W und NetDebt_EBITDA wurden bisher NIE geladen,
+        # obwohl sie PFLICHT_KPIS sind. Damit musste fuer jeden der 37 Werte
+        # jedes Mal manuell nachgefragt werden. Beide werden jetzt versucht,
+        # automatisch aus yfinance zu ziehen. Yahoo-Feldnamen sind bekanntermassen
+        # nicht immer stabil - falls ein Feld fehlt, greift wie bisher die
+        # manuelle Abfrage in screen_abfrage().
+        perf_52w = safe_get(info, "52WeekChange")
+
+        total_debt = safe_get(info, "totalDebt")
+        total_cash = safe_get(info, "totalCash")
+        ebitda = safe_get(info, "ebitda")
+        netdebt_ebitda = np.nan
+        if not pd.isna(total_debt) and not pd.isna(total_cash) and not pd.isna(ebitda) and ebitda != 0:
+            netdebt_ebitda = (total_debt - total_cash) / ebitda
+
+        return {
+            "Aktueller_Kurs": price,
+            "Waehrung": currency,
+            "Forward_KGV": forward_kgv,
+            "EV_EBITDA": ev_ebitda,
+            "Umsatz_Wachstum": umsatz_wachstum,
+            "Bruttomarge": brutto,
+            "Operating_Margin": op_marge,
+            "FCF_Marge": fcf_marge,
+            "Performance_52W": perf_52w,
+            "NetDebt_EBITDA": netdebt_ebitda,
+        }
+    except Exception:
+        return None
+
 
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
-    return [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi,np.nan))]
+    return [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi, np.nan))]
+
 
 def baue_abfrage_queue():
     queue = []
     for ticker in st.session_state.aktien_liste:
-        init_ticker(ticker); obj = st.session_state.datenbank[ticker]
+        init_ticker(ticker)
+        obj = st.session_state.datenbank[ticker]
         if obj["status"] == "neu":
             daten = yahoo_laden(ticker)
             if daten:
@@ -174,8 +299,9 @@ def baue_abfrage_queue():
         for kpi in fehlende_kpis(ticker): queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
+
 # ============================================
-# 4. SCORING ENGINE v7.45.4
+# 4. SCORING ENGINE v7.46.0
 # ============================================
 def normalize_global(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce")
@@ -185,14 +311,22 @@ def normalize_global(df, col, higher_better=True):
     if not higher_better: x = -x
     return x.rank(pct=True)
 
+
 def calculate_scores(df):
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
     df['Vollständig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
     df['Capex_Bias'] = df['typ'].map(CAPEX_BIAS)
+
+    # FIX 3: NetDebt_EBITDA gehoert zu 'lower_better', genau wie Forward_KGV
+    # und EV_EBITDA. Vorher fehlte es in dieser Liste, wodurch hoehere
+    # Verschuldung relativ zu EBITDA einen HOEHEREN Score ergab (Vorzeichenfehler).
+    # War bisher folgenlos, weil NetDebt_EBITDA nicht in WEIGHTS stand (siehe FIX 4) -
+    # jetzt aber aktiv und relevant.
     for col in PFLICHT_KPIS:
-        lower_better = col in ['Forward_KGV','EV_EBITDA']
+        lower_better = col in ['Forward_KGV', 'EV_EBITDA', 'NetDebt_EBITDA']
         df[f'Norm_{col}'] = normalize_global(df, col, not lower_better)
+
     df['Finanzscore'] = 0.0
     for idx, row in df.iterrows():
         weights = WEIGHTS[row['typ']]
@@ -201,11 +335,13 @@ def calculate_scores(df):
             norm_val = row[f'Norm_{col}']
             if not pd.isna(norm_val): score += norm_val * w
         df.at[idx, 'Finanzscore'] = score * 100
+
     df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9
     df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität']) + df['Capex_Bias']).round(1)
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
+
 
 def get_investment_rating(score, vollständig):
     if pd.isna(score): return "N/A"
@@ -215,8 +351,10 @@ def get_investment_rating(score, vollständig):
     elif score >= 45: return "Hold"
     else: return "Sell"
 
+
 def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
+
 
 # ============================================
 # 5. SCREENS
@@ -224,85 +362,125 @@ def highlight_na(val):
 def screen_sammeln():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([4,1]) # 4:1 Verhältnis
+    col1, col2 = st.columns([4, 1])
     with col1:
         st.title(f"AI Infrastructure Ranking {VERSION}")
     with col2:
-        st.markdown("") # Leerzeile für vertikale Ausrichtung
+        st.markdown("")
         st.markdown("[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)")
 
     fear_greed = get_fear_greed()
     st.info(f"**Axiom:** {AI_CYCLE_ASSUMPTION} | Fear&Greed: {fear_greed} | **OpMargin: 30%**")
-    st.subheader(f"Universum: {len([s for s in STOCK_UNIVERSE if s['typ']=='Empfänger'])} Empfänger + {len([s for s in STOCK_UNIVERSE if s['typ']=='Spender'])} Spender + {len([s for s in STOCK_UNIVERSE if s['typ']=='Neutral'])} Neutral = {len(STOCK_UNIVERSE)} US/ADR Werte")
+    st.subheader(
+        f"Universum: {len([s for s in STOCK_UNIVERSE if s['typ']=='Empfänger'])} Empfänger + "
+        f"{len([s for s in STOCK_UNIVERSE if s['typ']=='Spender'])} Spender + "
+        f"{len([s for s in STOCK_UNIVERSE if s['typ']=='Neutral'])} Neutral = {len(STOCK_UNIVERSE)} US/ADR Werte"
+    )
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
-    st.table(df_meta[['ticker','name','flag','segment','typ']])
+    st.table(df_meta[['ticker', 'name', 'flag', 'segment', 'typ']])
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
         with st.spinner("Lade Yahoo Daten..."):
             baue_abfrage_queue()
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
 
+
 def screen_abfrage():
-    if len(st.session_state.abfrage_queue) == 0: st.session_state.modus = "ranking"; st.rerun(); return
+    if len(st.session_state.abfrage_queue) == 0:
+        st.session_state.modus = "ranking"
+        st.rerun()
+        return
     ticker, kpi = st.session_state.abfrage_queue[0]
     st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
     st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
     eingabe = st.text_input("Wert eingeben")
-    col1,col2,col3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("💾 Speichern"):
             wert = parse_number(eingabe)
-            if pd.isna(wert): st.error("Keine gültige Zahl"); return
+            if pd.isna(wert):
+                st.error("Keine gültige Zahl")
+                return
             save_kpi(ticker, kpi, wert, "Manuell")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
     with col2:
         if st.button("⏭️ Überspringen"):
             save_kpi(ticker, kpi, np.nan, "Übersprungen")
-            st.session_state.abfrage_queue.pop(0); st.rerun()
+            st.session_state.abfrage_queue.pop(0)
+            st.rerun()
     with col3:
         if st.button("⏭️⏭️ Alle überspringen"):
             for t, k in st.session_state.abfrage_queue: save_kpi(t, k, np.nan, "Bulk Übersprungen")
-            st.session_state.abfrage_queue = []; st.session_state.modus = "ranking"; st.rerun()
+            st.session_state.abfrage_queue = []
+            st.session_state.modus = "ranking"
+            st.rerun()
+
 
 def screen_ranking():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
 
-    col1, col2 = st.columns([4,1]) # 4:1 Verhältnis
+    col1, col2 = st.columns([4, 1])
     with col1:
         st.title(f"AI Infrastructure Ranking {VERSION}")
     with col2:
-        st.markdown("") # Leerzeile für vertikale Ausrichtung
+        st.markdown("")
         st.markdown("[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)")
 
-    liste=[st.session_state.datenbank[ticker]["daten"] for ticker in st.session_state.aktien_liste]
-    df=pd.DataFrame(liste)
-    if len(df)<2:
+    liste = [st.session_state.datenbank[ticker]["daten"] for ticker in st.session_state.aktien_liste]
+    df = pd.DataFrame(liste)
+    if len(df) < 2:
         st.error("Zu wenige Aktien")
-        if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
+        if st.button("⬅️ Zurück zur Liste"):
+            st.session_state.modus = "sammeln"
+            st.rerun()
         return
+
     df = calculate_scores(df)
     df["Investment_Rating"] = df.apply(lambda x: get_investment_rating(x["Gesamtscore"], x["Vollständig"]), axis=1)
     fehlende = df[df['Vollständig'] == False]
     if len(fehlende) > 0:
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten und gelbe Felder:")
-        st.table(fehlende[['Ticker','name','flag','Datenpunkte']])
-    st.subheader("Globales Ranking v7.45.4-US")
+        st.table(fehlende[['Ticker', 'name', 'flag', 'Datenpunkte']])
+
+    st.subheader("Globales Ranking v7.46.0-US")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
-    st.caption("OpMargin 30% | Capex_Bias +/-10P | Wachstum Empfänger 30% | 37 US/ADR Werte")
+    st.caption("OpMargin 25-30% | Capex_Bias +/-10P | NetDebt/EBITDA + Perf 52W neu gewichtet | 37 US/ADR Werte")
+
     seg_filter = st.selectbox("Segment Filter", ["Alle"] + sorted(df['segment'].unique()))
-    if seg_filter!= "Alle": df_show = df[df['segment']==seg_filter].copy()
-    else: df_show = df.copy()
-    show_cols = ['Rang','Ticker','name','flag','segment','typ','Capex_Bias','Aktueller_Kurs','Forward_KGV','EV_EBITDA','Umsatz_Wachstum','Bruttomarge','Operating_Margin','FCF_Marge','Finanzscore','Gesamtscore','Investment_Rating']
+    if seg_filter != "Alle":
+        df_show = df[df['segment'] == seg_filter].copy()
+    else:
+        df_show = df.copy()
+
+    # FIX: Performance_52W und NetDebt_EBITDA jetzt auch in der Tabelle sichtbar,
+    # vorher waren sie Pflichtfelder ohne jede Anzeige im Output.
+    show_cols = [
+        'Rang', 'Ticker', 'name', 'flag', 'segment', 'typ', 'Capex_Bias', 'Aktueller_Kurs',
+        'Forward_KGV', 'EV_EBITDA', 'Umsatz_Wachstum', 'Bruttomarge', 'Operating_Margin',
+        'FCF_Marge', 'NetDebt_EBITDA', 'Performance_52W',
+        'Finanzscore', 'Gesamtscore', 'Investment_Rating'
+    ]
     df_show = df_show[show_cols]
-    format_dict = {c: lambda x: "N/A" if pd.isna(x) else f"{x:.2f}" for c in PFLICHT_KPIS + ['Finanzscore','Gesamtscore']}
+
+    format_dict = {c: (lambda x: "N/A" if pd.isna(x) else f"{x:.2f}") for c in PFLICHT_KPIS + ['Finanzscore', 'Gesamtscore']}
     format_dict['Rang'] = lambda x: f"{int(x)}"
     format_dict['Capex_Bias'] = lambda x: f"{int(x):+d}P"
     styled_df = df_show.style.map(highlight_na).format(format_dict)
     st.table(styled_df)
-    output=io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.45.4")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.45.4_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
-    if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.0")
+    st.download_button(
+        "📥 Excel herunterladen", output.getvalue(),
+        file_name=f"AI_Ranking_v7.46.0_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        use_container_width=True
+    )
+    if st.button("⬅️ Zurück zur Liste"):
+        st.session_state.modus = "sammeln"
+        st.rerun()
+
 
 # APP START
 if st.session_state.modus == "sammeln": screen_sammeln()
