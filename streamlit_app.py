@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.46.2-US
-# FIX: KPI Levermann wird gespeichert + bei jedem Start abgefragt
+# AI Infrastructure Ranking v7.47.0-US
+# FIX: Levermann wird permanent in Levermann.txt gespeichert
 # ============================================
 
 import streamlit as st
@@ -8,6 +8,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import time
+import os
 from datetime import datetime
 import io
 import warnings
@@ -47,8 +48,8 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.46.2-US", layout="wide")
-VERSION = "v7.46.2-US"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.47.0-US", layout="wide")
+VERSION = "v7.47.0-US"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
@@ -61,7 +62,7 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.46.2-US - 37 WERTE
+# 2. STOCK_UNIVERSE v7.47.0-US - 37 WERTE
 # ============================================
 STOCK_UNIVERSE = [
     {"ticker": "NVDA", "name": "Nvidia", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
@@ -150,6 +151,39 @@ KPI_LABELS = {
     "Levermann": "Levermann Score",
     "Aktueller_Kurs": "Aktueller Kurs",
 }
+
+LEVERMANN_FILE = "Levermann.txt" # GEÄNDERT: Datei für permanente Speicherung
+
+def lade_levermann_aus_datei():
+    """Lädt Levermann Scores aus TXT und schreibt sie in die datenbank"""
+    levermann_dict = {}
+    try:
+        if os.path.exists(LEVERMANN_FILE):
+            with open(LEVERMANN_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    if "," in line:
+                        parts = line.strip().split(",")
+                        if len(parts) == 2:
+                            ticker, wert = parts[0].strip(), parts[1].strip()
+                            levermann_dict[ticker] = parse_number(wert)
+    except Exception:
+        pass
+
+    for ticker, wert in levermann_dict.items():
+        if ticker in st.session_state.datenbank and not pd.isna(wert):
+            save_kpi(ticker, "Levermann", wert, "TXT-Datei")
+    return levermann_dict
+
+def speichere_levermann_in_datei():
+    """Speichert alle Levermann Scores aus der datenbank in die TXT"""
+    lines = []
+    for ticker in st.session_state.aktien_liste:
+        wert = st.session_state.datenbank.get(ticker, {}).get("daten", {}).get("Levermann", np.nan)
+        if not pd.isna(wert):
+            lines.append(f"{ticker},{wert}")
+
+    with open(LEVERMANN_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 #Ende Block 1
 # ============================================
 # 3. HELPER
@@ -256,7 +290,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 4. SCORING ENGINE v7.46.2
+# 4. SCORING ENGINE v7.47.0
 # ============================================
 def get_levermann_multiplikator(wert):
     if pd.isna(wert): return 1.0
@@ -333,7 +367,8 @@ def screen_sammeln():
     df_meta = pd.DataFrame([s for s in STOCK_UNIVERSE if s["ticker"] in st.session_state.aktien_liste])
     st.table(df_meta[['ticker', 'name', 'flag', 'segment', 'typ']])
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
-        with st.spinner("Lade Yahoo Daten..."):
+        with st.spinner("Lade Yahoo Daten + Levermann..."):
+            lade_levermann_aus_datei() # GEÄNDERT: Levermann aus TXT laden
             baue_abfrage_queue()
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
@@ -360,6 +395,8 @@ def screen_abfrage():
                 st.error("Keine gültige Zahl")
                 return
             save_kpi(ticker, kpi, wert, "Manuell")
+            if kpi == "Levermann": # GEÄNDERT: Bei Levermann auch TXT speichern
+                speichere_levermann_in_datei()
             st.session_state.abfrage_queue.pop(0)
             st.rerun()
     with col2:
@@ -395,7 +432,7 @@ def screen_ranking():
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten und gelbe Felder:")
         st.table(fehlende[['Ticker', 'name', 'flag', 'Datenpunkte']])
 
-    st.subheader("Globales Ranking v7.46.2-US")
+    st.subheader("Globales Ranking v7.47.0-US")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
     st.caption("OpMargin 25-30% | Capex_Bias +/-10P | Levermann Multiplikator aktiv | 37 US/ADR Werte")
 
@@ -420,10 +457,10 @@ def screen_ranking():
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.2")
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.47.0")
     st.download_button(
         "📥 Excel herunterladen", output.getvalue(),
-        file_name=f"AI_Ranking_v7.46.2_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        file_name=f"AI_Ranking_v7.47.0_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         use_container_width=True
     )
     if st.button("⬅️ Zurück zur Liste"):
