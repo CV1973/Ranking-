@@ -1,6 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.47.0-US
-# FIX: Levermann wird permanent in Levermann.txt gespeichert
+# AI Infrastructure Ranking v7.47.1-US
+# FIX: Levermann wird permanent in Levermann.txt gespeichert + angezeigt
 # ============================================
 
 import streamlit as st
@@ -48,8 +48,8 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.47.0-US", layout="wide")
-VERSION = "v7.47.0-US"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.47.1-US", layout="wide")
+VERSION = "v7.47.1-US"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
@@ -62,7 +62,7 @@ if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.47.0-US - 37 WERTE
+# 2. STOCK_UNIVERSE v7.47.1-US - 37 WERTE
 # ============================================
 STOCK_UNIVERSE = [
     {"ticker": "NVDA", "name": "Nvidia", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
@@ -172,6 +172,8 @@ def lade_levermann_aus_datei():
     for ticker, wert in levermann_dict.items():
         if ticker in st.session_state.datenbank and not pd.isna(wert):
             save_kpi(ticker, "Levermann", wert, "TXT-Datei")
+            # FIX: Damit Levermann sofort in df auftaucht
+            st.session_state.datenbank[ticker]["daten"]["Levermann"] = wert
     return levermann_dict
 
 def speichere_levermann_in_datei():
@@ -290,7 +292,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 4. SCORING ENGINE v7.47.0
+# 4. SCORING ENGINE v7.47.1
 # ============================================
 def get_levermann_multiplikator(wert):
     if pd.isna(wert): return 1.0
@@ -422,6 +424,12 @@ def screen_ranking():
 
     liste = [st.session_state.datenbank[ticker]["daten"] for ticker in st.session_state.aktien_liste]
     df = pd.DataFrame(liste)
+
+    # FIX: Alle KPI Spalten anlegen falls noch nicht vorhanden
+    for kpi in PFLICHT_KPIS:
+        if kpi not in df.columns:
+            df[kpi] = np.nan
+
     if len(df) < 2:
         st.error("Zu wenige Aktien")
         if st.button("⬅️ Zurück zur Liste"):
@@ -436,7 +444,7 @@ def screen_ranking():
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten und gelbe Felder:")
         st.table(fehlende[['Ticker', 'name', 'flag', 'Datenpunkte']])
 
-    st.subheader("Globales Ranking v7.47.0-US")
+    st.subheader("Globales Ranking v7.47.1-US")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
     st.caption("OpMargin 25-30% | Capex_Bias +/-10P | Levermann Multiplikator aktiv | 37 US/ADR Werte")
 
@@ -461,10 +469,10 @@ def screen_ranking():
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Ranking_v7.47.0")
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.47.1")
     st.download_button(
         "📥 Excel herunterladen", output.getvalue(),
-        file_name=f"AI_Ranking_v7.47.0_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        file_name=f"AI_Ranking_v7.47.1_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         use_container_width=True
     )
     if st.button("⬅️ Zurück zur Liste"):
