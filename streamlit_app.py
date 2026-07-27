@@ -1,19 +1,6 @@
 # ============================================
-# AI Infrastructure Ranking v7.46.0-US
-# FIXES ggü. v7.45.4:
-#   1) KPI_LABELS: Performance_52W + NetDebt_EBITDA ergaenzt
-#      -> vorher KeyError-Crash in screen_abfrage() beim ersten Ticker
-#   2) yahoo_laden(): Performance_52W (52WeekChange) und NetDebt_EBITDA
-#      (TotalDebt - TotalCash) / EBITDA werden jetzt automatisch geladen
-#      -> vorher mussten beide fuer alle 37 Werte manuell eingegeben werden,
-#         obwohl sie bis jetzt gar nicht gewichtet wurden
-#   3) NetDebt_EBITDA zu 'lower_better' hinzugefuegt
-#      -> vorher: hoehere Verschuldung = besserer Score (Vorzeichenfehler)
-#   4) WEIGHTS: alle drei Typen summieren jetzt exakt auf 1.0
-#      -> vorher: Empfaenger nur 0.90, Spender/Neutral 1.00 (strukturelle
-#         Deckelung von Empfaenger-Scores vor Capex_Bias)
-#   5) Passwort ueber st.secrets statt Klartext im Code (oeffentliches Repo!)
-# AXIOM: CAPEX BOOM BIS Q4 2027
+# AI Infrastructure Ranking v7.46.1-US
+# FIX: KPI Levermann als Multiplikator hinzugefügt
 # ============================================
 
 import streamlit as st
@@ -39,7 +26,7 @@ def check_password():
         else:
             st.session_state["password_correct"] = False
 
-    col1, col2, col3 = st.columns([1, 2, 1])  # SCHMALER
+    col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         if st.secrets.get("app_password", None) is None:
             st.error(
@@ -58,11 +45,10 @@ def check_password():
         else:
             return True
 
-
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.46.0-US", layout="wide")
-VERSION = "v7.46.0-US"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.46.1-US", layout="wide")
+VERSION = "v7.46.1-US"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
@@ -71,15 +57,15 @@ AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
 for key, val in DEFAULTS.items():
     if key not in st.session_state: st.session_state[key] = val
+# GEÄNDERT: Reset verhindert, damit Daten bei Versionsupdate bleiben
 if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
-    # nur neue Keys aus DEFAULTS hinzufügen, alte datenbank behalten
     for key, val in DEFAULTS.items():
         if key not in st.session_state:
             st.session_state[key] = val
 
 # ============================================
-# 2. STOCK_UNIVERSE v7.46.0-US - 37 WERTE
+# 2. STOCK_UNIVERSE v7.46.1-US - 37 WERTE
 # ============================================
 STOCK_UNIVERSE = [
     {"ticker": "NVDA", "name": "Nvidia", "country": "USA", "flag": "🇺🇸", "segment": "AI Compute", "typ": "Empfänger"},
@@ -127,17 +113,6 @@ if len(st.session_state.aktien_liste) == 0:
 
 CAPEX_BIAS = {"Empfänger": 10, "Spender": -10, "Neutral": 0}
 
-# ============================================
-# GEWICHTE - FIX 4: alle drei Typen summieren jetzt auf 1.0
-# Empfaenger hatte vorher nur 0.90 (Forward_KGV .10 + EV_EBITDA .05 +
-# Umsatz_Wachstum .30 + Bruttomarge .10 + Operating_Margin .30 + FCF_Marge .05).
-# Die fehlenden 0.10 gehen jetzt an NetDebt_EBITDA (.05) und Performance_52W (.05),
-# ohne die bestehenden Gewichte fuer Empfaenger zu veraendern.
-# Bei Spender und Neutral wurden je 0.05 bei Operating_Margin/FCF_Marge bzw.
-# Operating_Margin/FCF_Marge abgezogen, um Platz fuer die zwei neuen Faktoren
-# zu schaffen. Das ist eine Annahme von mir, keine Ableitung aus deiner
-# urspruenglichen Methodik - bitte pruefen und ggf. anpassen.
-# ============================================
 WEIGHTS = {
     "Empfänger": {
         'Forward_KGV': 0.10, 'EV_EBITDA': 0.05, 'Umsatz_Wachstum': 0.30,
@@ -164,7 +139,8 @@ PFLICHT_KPIS = [
     "Operating_Margin",
     "FCF_Marge",
     "Performance_52W",
-    "NetDebt_EBITDA"
+    "NetDebt_EBITDA",
+    "Levermann" # GEÄNDERT: Neuer manueller KPI
 ]
 KPI_LABELS = {
     "Forward_KGV": "Forward KGV",
@@ -173,11 +149,12 @@ KPI_LABELS = {
     "Bruttomarge": "Bruttomarge",
     "Operating_Margin": "Operating Margin",
     "FCF_Marge": "FCF Marge",
-    "Performance_52W": "Performance 52 Wochen",   # FIX 1: war komplett unbekannt in KPI_LABELS -> KeyError-Crash
-    "NetDebt_EBITDA": "Net Debt/EBITDA",           # FIX 1
+    "Performance_52W": "Performance 52 Wochen",
+    "NetDebt_EBITDA": "Net Debt/EBITDA",
+    "Levermann": "Levermann Score", # GEÄNDERT
     "Aktueller_Kurs": "Aktueller Kurs",
 }
-
+#Ende Block 1
 # ============================================
 # 3. HELPER
 # ============================================
@@ -188,14 +165,12 @@ def get_fear_greed():
     except:
         return 50
 
-
 def safe_get(info, key):
     try:
         value = info.get(key)
         return np.nan if value is None else value
     except:
         return np.nan
-
 
 def parse_number(text):
     if text is None: return np.nan
@@ -205,18 +180,15 @@ def parse_number(text):
     except:
         return np.nan
 
-
 def init_ticker(ticker):
     if ticker not in st.session_state.datenbank:
         meta = next((s for s in STOCK_UNIVERSE if s["ticker"] == ticker), {"ticker": ticker, "name": ticker})
         st.session_state.datenbank[ticker] = {"daten": {"Ticker": ticker, **meta}, "audit": {}, "status": "neu"}
 
-
 def save_kpi(ticker, kpi, value, quelle):
     obj = st.session_state.datenbank[ticker]
     obj["daten"][kpi] = value
     obj["audit"][kpi] = {"Wert": value, "Quelle": quelle, "Zeit": datetime.now().strftime("%Y-%m-%d %H:%M"), "Version": VERSION}
-
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def yahoo_laden(ticker):
@@ -239,7 +211,7 @@ def yahoo_laden(ticker):
 
         if pd.isna(revenue) and not fin.empty: revenue = fin.iloc[0, 0]
         if pd.isna(fcf) and not cf.empty and 'Free Cash Flow' in cf.index: fcf = cf.loc['Free Cash Flow'].iloc[0]
-        fcf_marge = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue != 0 else np.nan
+        fcf_marge = fcf / revenue if not pd.isna(fcf) and not pd.isna(revenue) and revenue!= 0 else np.nan
 
         if pd.isna(brutto) and not fin.empty and 'Gross Profit' in fin.index and 'Total Revenue' in fin.index:
             try:
@@ -252,19 +224,12 @@ def yahoo_laden(ticker):
             except:
                 pass
 
-        # FIX 2: Performance_52W und NetDebt_EBITDA wurden bisher NIE geladen,
-        # obwohl sie PFLICHT_KPIS sind. Damit musste fuer jeden der 37 Werte
-        # jedes Mal manuell nachgefragt werden. Beide werden jetzt versucht,
-        # automatisch aus yfinance zu ziehen. Yahoo-Feldnamen sind bekanntermassen
-        # nicht immer stabil - falls ein Feld fehlt, greift wie bisher die
-        # manuelle Abfrage in screen_abfrage().
         perf_52w = safe_get(info, "52WeekChange")
-
         total_debt = safe_get(info, "totalDebt")
         total_cash = safe_get(info, "totalCash")
         ebitda = safe_get(info, "ebitda")
         netdebt_ebitda = np.nan
-        if not pd.isna(total_debt) and not pd.isna(total_cash) and not pd.isna(ebitda) and ebitda != 0:
+        if not pd.isna(total_debt) and not pd.isna(total_cash) and not pd.isna(ebitda) and ebitda!= 0:
             netdebt_ebitda = (total_debt - total_cash) / ebitda
 
         return {
@@ -282,11 +247,9 @@ def yahoo_laden(ticker):
     except Exception:
         return None
 
-
 def fehlende_kpis(ticker):
     daten = st.session_state.datenbank[ticker]["daten"]
     return [kpi for kpi in PFLICHT_KPIS if pd.isna(daten.get(kpi, np.nan))]
-
 
 def baue_abfrage_queue():
     queue = []
@@ -299,13 +262,28 @@ def baue_abfrage_queue():
                 for kpi, wert in daten.items():
                     if not pd.isna(wert): save_kpi(ticker, kpi, wert, "Yahoo")
             obj["status"] = "geladen"
-        for kpi in fehlende_kpis(ticker): queue.append((ticker, kpi))
+
+        # GEÄNDERT: Levermann immer zur Queue hinzufügen damit er bei jedem Start neu gefragt wird
+        fehlende = fehlende_kpis(ticker)
+        if "Levermann" not in fehlende:
+            fehlende.append("Levermann")
+        for kpi in fehlende: queue.append((ticker, kpi))
     st.session_state.abfrage_queue = queue
 
+# ============================================
+# 4. SCORING ENGINE v7.46.1
+# ============================================
+# GEÄNDERT: Neue Funktion für Levermann Multiplikator
+def get_levermann_multiplikator(wert):
+    if pd.isna(wert): return 1.0
+    if wert > 6: return 1.4
+    if wert > 5: return 1.3
+    if wert > 4: return 1.2
+    if wert > 3: return 1.1
+    if wert == 3: return 1.0
+    if wert < 3: return 0.8
+    return 1.0
 
-# ============================================
-# 4. SCORING ENGINE v7.46.0
-# ============================================
 def normalize_global(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce")
     valid = s.dropna()
@@ -314,18 +292,14 @@ def normalize_global(df, col, higher_better=True):
     if not higher_better: x = -x
     return x.rank(pct=True)
 
-
 def calculate_scores(df):
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
     df['Vollständig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
     df['Capex_Bias'] = df['typ'].map(CAPEX_BIAS)
+    # GEÄNDERT: Multiplikator Spalte anlegen
+    df['Levermann_Mult'] = df['Levermann'].apply(get_levermann_multiplikator)
 
-    # FIX 3: NetDebt_EBITDA gehoert zu 'lower_better', genau wie Forward_KGV
-    # und EV_EBITDA. Vorher fehlte es in dieser Liste, wodurch hoehere
-    # Verschuldung relativ zu EBITDA einen HOEHEREN Score ergab (Vorzeichenfehler).
-    # War bisher folgenlos, weil NetDebt_EBITDA nicht in WEIGHTS stand (siehe FIX 4) -
-    # jetzt aber aktiv und relevant.
     for col in PFLICHT_KPIS:
         lower_better = col in ['Forward_KGV', 'EV_EBITDA', 'NetDebt_EBITDA']
         df[f'Norm_{col}'] = normalize_global(df, col, not lower_better)
@@ -340,11 +314,11 @@ def calculate_scores(df):
         df.at[idx, 'Finanzscore'] = score * 100
 
     df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9
-    df['Gesamtscore'] = (df['Gesamtscore_Roh'] * (0.3 + 0.7 * df['Datenqualität']) + df['Capex_Bias']).round(1)
+    # GEÄNDERT: Levermann_Mult wird hier angewendet
+    df['Gesamtscore'] = (df['Gesamtscore_Roh'] * df['Levermann_Mult'] * (0.3 + 0.7 * df['Datenqualität']) + df['Capex_Bias']).round(1)
     df = df.sort_values("Gesamtscore", ascending=False, na_position='last').reset_index(drop=True)
     df["Rang"] = df.index + 1
     return df
-
 
 def get_investment_rating(score, vollständig):
     if pd.isna(score): return "N/A"
@@ -354,11 +328,9 @@ def get_investment_rating(score, vollständig):
     elif score >= 45: return "Hold"
     else: return "Sell"
 
-
 def highlight_na(val):
     return 'background-color: #FFF9C4' if pd.isna(val) else ''
-
-
+#Ende Block 2
 # ============================================
 # 5. SCREENS
 # ============================================
@@ -387,14 +359,15 @@ def screen_sammeln():
         st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
         st.rerun()
 
-
 def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0:
         st.session_state.modus = "ranking"
         st.rerun()
         return
     ticker, kpi = st.session_state.abfrage_queue[0]
-    st.error(f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}")
+    alter_wert = st.session_state.datenbank[ticker]["daten"].get(kpi, "Kein Wert")
+    st.error(f"Fehlender/Aktualisieren: {ticker} - {KPI_LABELS[kpi]}")
+    st.write(f"Aktueller Wert: {alter_wert}")
     st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
     eingabe = st.text_input("Wert eingeben")
     col1, col2, col3 = st.columns(3)
@@ -408,17 +381,16 @@ def screen_abfrage():
             st.session_state.abfrage_queue.pop(0)
             st.rerun()
     with col2:
-        if st.button("⏭️ Überspringen"):
+        if st.button("⏭️ Überspringen"): # GEÄNDERT: Text
             save_kpi(ticker, kpi, np.nan, "Übersprungen")
             st.session_state.abfrage_queue.pop(0)
             st.rerun()
     with col3:
-        if st.button("⏭️⏭️ Alle überspringen"):
+        if st.button("⏭️⏭️ Alle überspringem"): # GEÄNDERT: Text wie gewünscht
             for t, k in st.session_state.abfrage_queue: save_kpi(t, k, np.nan, "Bulk Übersprungen")
             st.session_state.abfrage_queue = []
             st.session_state.modus = "ranking"
             st.rerun()
-
 
 def screen_ranking():
     st.markdown("""<style>@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');.stTable {font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;}</style>""", unsafe_allow_html=True)
@@ -446,27 +418,29 @@ def screen_ranking():
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten und gelbe Felder:")
         st.table(fehlende[['Ticker', 'name', 'flag', 'Datenpunkte']])
 
-    st.subheader("Globales Ranking v7.46.0-US")
+    st.subheader("Globales Ranking v7.46.1-US")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
-    st.caption("OpMargin 25-30% | Capex_Bias +/-10P | NetDebt/EBITDA + Perf 52W neu gewichtet | 37 US/ADR Werte")
+    st.caption("OpMargin 25-30% | Capex_Bias +/-10P | Levermann Multiplikator aktiv | 37 US/ADR Werte")
 
     seg_filter = st.selectbox("Segment Filter", ["Alle"] + sorted(df['segment'].unique()))
-    if seg_filter != "Alle":
+    if seg_filter!= "Alle":
         df_show = df[df['segment'] == seg_filter].copy()
     else:
         df_show = df.copy()
 
-    # FIX: Performance_52W und NetDebt_EBITDA jetzt auch in der Tabelle sichtbar,
-    # vorher waren sie Pflichtfelder ohne jede Anzeige im Output.
+    # GEÄNDERT: Fehlende Spalten vorher anlegen um KeyError zu vermeiden
     show_cols = [
         'Rang', 'Ticker', 'name', 'flag', 'segment', 'typ', 'Capex_Bias', 'Aktueller_Kurs',
         'Forward_KGV', 'EV_EBITDA', 'Umsatz_Wachstum', 'Bruttomarge', 'Operating_Margin',
-        'FCF_Marge', 'NetDebt_EBITDA', 'Performance_52W',
+        'FCF_Marge', 'NetDebt_EBITDA', 'Performance_52W', 'Levermann',
         'Finanzscore', 'Gesamtscore', 'Investment_Rating'
     ]
+    for col in show_cols:
+        if col not in df_show.columns:
+            df_show[col] = np.nan
     df_show = df_show[show_cols]
 
-    format_dict = {c: (lambda x: "N/A" if pd.isna(x) else f"{x:.2f}") for c in PFLICHT_KPIS + ['Finanzscore', 'Gesamtscore']}
+    format_dict = {c: (lambda x: "N/A" if pd.isna(x) else f"{x:.2f}") for c in PFLICHT_KPIS + ['Aktueller_Kurs', 'Finanzscore', 'Gesamtscore']}
     format_dict['Rang'] = lambda x: f"{int(x)}"
     format_dict['Capex_Bias'] = lambda x: f"{int(x):+d}P"
     styled_df = df_show.style.map(highlight_na).format(format_dict)
@@ -474,16 +448,15 @@ def screen_ranking():
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.0")
+        df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.1")
     st.download_button(
         "📥 Excel herunterladen", output.getvalue(),
-        file_name=f"AI_Ranking_v7.46.0_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        file_name=f"AI_Ranking_v7.46.1_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         use_container_width=True
     )
     if st.button("⬅️ Zurück zur Liste"):
         st.session_state.modus = "sammeln"
         st.rerun()
-
 
 # APP START
 if st.session_state.modus == "sammeln": screen_sammeln()
