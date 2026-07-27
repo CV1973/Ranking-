@@ -1,4 +1,4 @@
-08# ============================================
+#============================================
 # AI Infrastructure Ranking v7.46.2-US + LEVERMANN NUR AUS TXT
 # FIXES ggü. v7.45.4:
 # 1) KPI_LABELS: Performance_52W + NetDebt_EBITDA ergaenzt
