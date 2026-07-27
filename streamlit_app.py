@@ -1,12 +1,12 @@
 # ============================================
-# AI Infrastructure Ranking v7.46.1-US + LEVERMANN
+# AI Infrastructure Ranking v7.46.2-US + LEVERMANN NUR AUS TXT
 # FIXES ggü. v7.45.4:
 # 1) KPI_LABELS: Performance_52W + NetDebt_EBITDA ergaenzt
 # 2) yahoo_laden(): Performance_52W und NetDebt_EBITDA werden geladen
 # 3) NetDebt_EBITDA zu 'lower_better' hinzugefuegt
 # 4) WEIGHTS: alle drei Typen summieren jetzt exakt auf 1.0
 # 5) Passwort ueber st.secrets
-# NEU v7.46.1: Levermann.txt Einlesen + Multiplikator 0.8 bis 1.4
+# NEU v7.46.2: Levermann NUR aus Levermann.txt. Kein UI, kein Speichern
 # AXIOM: CAPEX BOOM BIS Q4 2027
 # ============================================
 
@@ -50,15 +50,15 @@ def check_password():
 
 check_password()
 
-st.set_page_config(page_title="AI Infrastructure Ranking v7.46.1-US", layout="wide")
-VERSION = "v7.46.1-US"
+st.set_page_config(page_title="AI Infrastructure Ranking v7.46.2-US", layout="wide")
+VERSION = "v7.46.2-US"
 AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 
 # ============================================
 # 1. SESSION STATE
 # ============================================
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": "",
-            "levermann_queue": [], "levermann_index": 0, "levermann_txt": {}}
+            "levermann_txt": {}}
 for key, val in DEFAULTS.items():
     if key not in st.session_state: st.session_state[key] = val
 if st.session_state.version_loaded!= VERSION:
@@ -123,7 +123,7 @@ WEIGHTS = {
 PFLICHT_KPIS = ["Forward_KGV","EV_EBITDA","Umsatz_Wachstum","Bruttomarge","Operating_Margin","FCF_Marge","Performance_52W","NetDebt_EBITDA"]
 KPI_LABELS = {"Forward_KGV": "Forward KGV","EV_EBITDA": "EV/EBITDA","Umsatz_Wachstum": "Umsatzwachstum","Bruttomarge": "Bruttomarge","Operating_Margin": "Operating Margin","FCF_Marge": "FCF Marge","Performance_52W": "Performance 52 Wochen","NetDebt_EBITDA": "Net Debt/EBITDA","Aktueller_Kurs": "Aktueller Kurs"}
 
-# === NEU v7.46.1 LEVERMANN HELFER ===
+# === NEU v7.46.2 LEVERMANN NUR AUS TXT ===
 def lade_levermann_aus_datei():
     try:
         df_lev = pd.read_csv('Levermann.txt', header=None, names=['Ticker', 'Wert'])
@@ -131,7 +131,7 @@ def lade_levermann_aus_datei():
         st.session_state.levermann_txt = df_lev.set_index('Ticker')['Wert'].to_dict()
     except:
         st.session_state.levermann_txt = {}
-        st.warning("Levermann.txt nicht gefunden")
+        st.error("Levermann.txt nicht gefunden. Datei muss im App-Ordner liegen: TICKER,Wert")
 
 def berechne_levermann_faktor(lev):
     if pd.isna(lev): return 1.0
@@ -215,7 +215,7 @@ def baue_abfrage_queue():
     st.session_state.abfrage_queue = queue
 
 # ============================================
-# 4. SCORING ENGINE v7.46.1 + LEVERMANN
+# 4. SCORING ENGINE v7.46.2 + LEVERMANN NUR AUS TXT
 # ============================================
 def normalize_global(df, col, higher_better=True):
     s = pd.to_numeric(df[col], errors="coerce"); valid = s.dropna()
@@ -241,8 +241,8 @@ def calculate_scores(df):
         df.at[idx, 'Finanzscore'] = score * 100
     df['Gesamtscore_Roh'] = df['Finanzscore'] * 0.9
 
-    # NEU v7.46.1: Levermann Multiplikator vor Capex_Bias
-    df['Levermann'] = df['Ticker'].map(st.session_state.levermann_txt)
+    # NEU v7.46.2: Levermann NUR aus TXT Dict, nicht aus DB
+    df['Levermann'] = df['Ticker'].apply(lambda x: st.session_state.levermann_txt.get(x, np.nan))
     df['Levermann_Faktor'] = df['Levermann'].apply(berechne_levermann_faktor)
     df['Gesamtscore_Roh_mit_Lev'] = df['Gesamtscore_Roh'] * df['Levermann_Faktor']
     df['Gesamtscore'] = (df['Gesamtscore_Roh_mit_Lev'] * (0.3 + 0.7 * df['Datenqualität']) + df['Capex_Bias']).round(1)
@@ -278,39 +278,10 @@ def screen_sammeln():
 
     if st.button("✅ Auswertung starten", type="primary", use_container_width=True):
         with st.spinner("Lade Yahoo + Levermann Daten..."):
-            lade_levermann_aus_datei()
-            st.session_state.levermann_queue = [t for t in st.session_state.aktien_liste if t in st.session_state.levermann_txt]
+            lade_levermann_aus_datei() # NUR NOCH LADEN
             baue_abfrage_queue()
-            if len(st.session_state.levermann_queue) > 0:
-                st.session_state.modus = "levermann_abfrage"
-            else:
-                st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
-        st.rerun()
-
-def screen_levermann_abfrage():
-    st.header("Levermann Werte aus TXT prüfen")
-    i = st.session_state.levermann_index; queue = st.session_state.levermann_queue
-    ticker = queue[i]; txt_wert = st.session_state.levermann_txt[ticker]
-    st.info(f"**{ticker}** | Wert aus Levermann.txt: **{txt_wert}**")
-    st.progress((i+1)/len(queue))
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("✅ Übernehmen"):
-            save_kpi(ticker, "Levermann", txt_wert, "Levermann.txt")
-            st.session_state.levermann_index += 1
-            if st.session_state.levermann_index >= len(queue):
-                st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
-            st.rerun()
-    with col2:
-        if st.button("⏭️ Überspringen"):
-            st.session_state.levermann_index += 1
-            if st.session_state.levermann_index >= len(queue):
-                st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
-            st.rerun()
-    with col3:
-        if st.button("⏭️ Alle überspringen"):
             st.session_state.modus = "abfrage" if len(st.session_state.abfrage_queue) > 0 else "ranking"
-            st.rerun()
+        st.rerun()
 
 def screen_abfrage():
     if len(st.session_state.abfrage_queue) == 0:
@@ -350,9 +321,9 @@ def screen_ranking():
     if len(fehlende) > 0:
         st.error(f"⚠️ {len(fehlende)} Werte haben fehlende Daten und gelbe Felder:")
         st.table(fehlende[['Ticker', 'name', 'flag', 'Datenpunkte']])
-    st.subheader("Globales Ranking v7.46.1-US")
+    st.subheader("Globales Ranking v7.46.2-US")
     st.success(f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}")
-    st.caption("OpMargin 25-30% | Capex_Bias +/-10P | Levermann Multiplikator aktiv | 37 US/ADR Werte")
+    st.caption("OpMargin 25-30% | Capex_Bias +/-10P | Levermann NUR aus TXT | 37 US/ADR Werte")
     seg_filter = st.selectbox("Segment Filter", ["Alle"] + sorted(df['segment'].unique()))
     df_show = df[df['segment'] == seg_filter].copy() if seg_filter!= "Alle" else df.copy()
     show_cols = ['Rang', 'Ticker', 'name', 'flag', 'segment', 'typ', 'Capex_Bias', 'Aktueller_Kurs', 'Forward_KGV', 'EV_EBITDA', 'Umsatz_Wachstum', 'Bruttomarge', 'Operating_Margin', 'FCF_Marge', 'NetDebt_EBITDA', 'Performance_52W', 'Levermann', 'Levermann_Faktor', 'Finanzscore', 'Gesamtscore', 'Investment_Rating']
@@ -362,13 +333,12 @@ def screen_ranking():
     styled_df = df_show.style.map(highlight_na).format(format_dict)
     st.table(styled_df)
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.1")
-    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.46.1_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
+    with pd.ExcelWriter(output, engine="openpyxl") as writer: df.to_excel(writer, index=False, sheet_name="Ranking_v7.46.2")
+    st.download_button("📥 Excel herunterladen", output.getvalue(), file_name=f"AI_Ranking_v7.46.2_US_{datetime.now().strftime('%Y-%m-%d')}.xlsx", use_container_width=True)
     if st.button("⬅️ Zurück zur Liste"): st.session_state.modus = "sammeln"; st.rerun()
 
 # APP START
 if st.session_state.modus == "sammeln": screen_sammeln()
-elif st.session_state.modus == "levermann_abfrage": screen_levermann_abfrage()
 elif st.session_state.modus == "abfrage": screen_abfrage()
 elif st.session_state.modus == "ranking": screen_ranking()
 #Ende Block 3
