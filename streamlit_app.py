@@ -369,7 +369,7 @@ def screen_abfrage():
     st.error(f"Fehlender/Aktualisieren: {ticker} - {KPI_LABELS[kpi]}")
     st.write(f"Aktueller Wert: {alter_wert}")
     st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
-    eingabe = st.text_input("Wert eingeben")
+    eingabe = st.text_input(f"Wert für {ticker} - {KPI_LABELS.get(kpi, kpi)} eingeben")
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("💾 Speichern"):
