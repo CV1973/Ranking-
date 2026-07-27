@@ -311,6 +311,10 @@ def normalize_global(df, col, higher_better=True):
     return x.rank(pct=True)
 
 def calculate_scores(df):
+    # FIX: Fehlende KPI Spalten mit NaN anlegen, sonst KeyError
+    for kpi in PFLICHT_KPIS:
+        if kpi not in df.columns:
+            df[kpi] = np.nan
     df['Datenpunkte'] = df[PFLICHT_KPIS].notna().sum(axis=1)
     df['Vollständig'] = df['Datenpunkte'] == len(PFLICHT_KPIS)
     df['Datenqualität'] = df['Datenpunkte'] / len(PFLICHT_KPIS)
