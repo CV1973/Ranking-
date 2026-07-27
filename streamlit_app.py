@@ -263,7 +263,8 @@ def baue_abfrage_queue():
                     if not pd.isna(wert): save_kpi(ticker, kpi, wert, "Yahoo")
             obj["status"] = "geladen"
 
-        # GEÄNDERT: Levermann immer zur Queue hinzufügen damit er bei jedem Start neu gefragt wird
+        # GEÄNDERT: Alle fehlenden KPIS + Levermann immer in die Queue
+        # Grund: Levermann soll bei jedem Start neu bestätigt/überschrieben werden
         fehlende = fehlende_kpis(ticker)
         if "Levermann" not in fehlende:
             fehlende.append("Levermann")
@@ -365,14 +366,19 @@ def screen_abfrage():
         st.rerun()
         return
     ticker, kpi = st.session_state.abfrage_queue[0]
-    alter_wert = st.session_state.datenbank[ticker]["daten"].get(kpi, "Kein Wert")
-    st.error(f"Fehlender/Aktualisieren: {ticker} - {KPI_LABELS[kpi]}")
-    st.write(f"Aktueller Wert: {alter_wert}")
-    st.write(f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs")
-    eingabe = st.text_input(f"Wert für {ticker} - {KPI_LABELS.get(kpi, kpi)} eingeben")
+
+    alter_wert = st.session_state.datenbank[ticker]["daten"].get(kpi, np.nan)
+    st.error(f"Bestätigen/Aktualisieren: {ticker} - {KPI_LABELS[kpi]}")
+    st.write(f"Aktueller gespeicherter Wert: {alter_wert if not pd.isna(alter_wert) else 'Kein Wert'}")
+    st.write(f"Noch {len(st.session_state.abfrage_queue)} KPIs zu bestätigen")
+
+    # GEÄNDERT: Alter Wert wird als Default ins Eingabefeld geladen
+    default_val = "" if pd.isna(alter_wert) else str(alter_wert)
+    eingabe = st.text_input(f"Wert für {ticker} - {KPI_LABELS.get(kpi, kpi)} eingeben", value=default_val)
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("💾 Speichern"):
+        if st.button("💾 Speichern/Überschreiben"):
             wert = parse_number(eingabe)
             if pd.isna(wert):
                 st.error("Keine gültige Zahl")
@@ -381,13 +387,13 @@ def screen_abfrage():
             st.session_state.abfrage_queue.pop(0)
             st.rerun()
     with col2:
-        if st.button("⏭️ Überspringen"): # GEÄNDERT: Text
-            save_kpi(ticker, kpi, np.nan, "Übersprungen")
+        if st.button("⏭️ Überspringen"):
+            # GEÄNDERT: Überspringen = alten Wert behalten, nicht löschen
             st.session_state.abfrage_queue.pop(0)
             st.rerun()
     with col3:
-        if st.button("⏭️⏭️ Alle überspringem"): # GEÄNDERT: Text wie gewünscht
-            for t, k in st.session_state.abfrage_queue: save_kpi(t, k, np.nan, "Bulk Übersprungen")
+        if st.button("⏭️⏭️ Alle überspringem"):
+            # GEÄNDERT: Alle überspringen = alle alten Werte behalten
             st.session_state.abfrage_queue = []
             st.session_state.modus = "ranking"
             st.rerun()
