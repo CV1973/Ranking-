@@ -3,8 +3,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import yfinance as yf
-import plotly.graph_objects as go
-import plotly.express as px
 
 st.set_page_config(page_title="Stock Analyse v7.45.5", layout="wide")
 st.title("📊 Stock Analyse v7.45.5 + Levermann TXT")
