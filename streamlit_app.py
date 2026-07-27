@@ -71,9 +71,12 @@ AI_CYCLE_ASSUMPTION = "CAPEX BOOM BIS Q4 2027 - EMPFÄNGER GEWINNEN"
 DEFAULTS = {"aktien_liste": [], "datenbank": {}, "modus": "sammeln", "abfrage_queue": [], "version_loaded": ""}
 for key, val in DEFAULTS.items():
     if key not in st.session_state: st.session_state[key] = val
-if st.session_state.version_loaded != VERSION:
-    for key, val in DEFAULTS.items(): st.session_state[key] = val
+if st.session_state.version_loaded!= VERSION:
     st.session_state.version_loaded = VERSION
+    # nur neue Keys aus DEFAULTS hinzufügen, alte datenbank behalten
+    for key, val in DEFAULTS.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
 # ============================================
 # 2. STOCK_UNIVERSE v7.46.0-US - 37 WERTE
