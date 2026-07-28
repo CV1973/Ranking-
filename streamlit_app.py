@@ -1,14 +1,15 @@
 # ============================================
-# AI Infrastructure CAPEX Cycle Ranking v7.47.0-US
-# KISS VERSION
+# AI Infrastructure Ranking v7.47.0-US KISS
+# Teil 1/3
 #
-# Änderungen ggü. v7.46.2:
-# 1) Performance_52W entfernt
+# FIXES:
+# 1) st.set_page_config an Anfang verschoben
 # 2) Levermann nur aus Levermann.txt
-# 3) Levermann Faktor max. 1.10
-# 4) CAPEX_Bias +/-5 statt +/-10
-# 5) Horizont: CAPEX Zyklus bis Ende 2027
+# 3) Levermann als Multiplikator
+# 4) CAPEX Zyklus bis Ende 2027 als Axiom
+# 5) KISS: keine UI / kein Speichern Levermann
 # ============================================
+
 
 import streamlit as st
 import yfinance as yf
@@ -23,59 +24,11 @@ warnings.filterwarnings("ignore")
 
 
 # ============================================
-# 0. LOGIN SCHUTZ
+# 0. STREAMLIT CONFIG
 # ============================================
 
-def check_password():
-
-    def password_entered():
-        expected = st.secrets.get("app_password", None)
-
-        if expected is not None and st.session_state["password"] == expected:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]
-        else:
-            st.session_state["password_correct"] = False
-
-    col1, col2, col3 = st.columns([1,2,1])
-
-    with col2:
-
-        if st.secrets.get("app_password", None) is None:
-            st.error("Kein Passwort in st.secrets konfiguriert.")
-            st.stop()
-
-        if "password_correct" not in st.session_state:
-
-            st.text_input(
-                "Passwort",
-                type="password",
-                on_change=password_entered,
-                key="password"
-            )
-            st.stop()
-
-        elif not st.session_state["password_correct"]:
-
-            st.text_input(
-                "Passwort",
-                type="password",
-                on_change=password_entered,
-                key="password"
-            )
-
-            st.error("Passwort falsch")
-            st.stop()
-
-        else:
-            return True
-
-
-check_password()
-
-
 st.set_page_config(
-    page_title="AI Infrastructure CAPEX Cycle Ranking 2027",
+    page_title="AI Infrastructure Ranking v7.47.0-US",
     layout="wide"
 )
 
@@ -83,231 +36,551 @@ st.set_page_config(
 VERSION = "v7.47.0-US"
 
 AI_CYCLE_ASSUMPTION = (
-    "CAPEX BOOM BIS ENDE 2027 - INFRASTRUKTUR EMPFÄNGER PROFITIEREN"
+    "CAPEX BOOM BIS ENDE 2027 - "
+    "INFRASTRUKTUR EMPFÄNGER PROFITIEREN"
 )
 
 
 # ============================================
-# 1. SESSION STATE
+# 1. LOGIN
 # ============================================
+
+def check_password():
+
+    def password_entered():
+
+        expected = st.secrets.get(
+            "app_password",
+            None
+        )
+
+        if expected is not None and \
+           st.session_state["password"] == expected:
+
+            st.session_state[
+                "password_correct"
+            ] = True
+
+            del st.session_state["password"]
+
+        else:
+
+            st.session_state[
+                "password_correct"
+            ] = False
+
+
+
+    if st.secrets.get(
+        "app_password",
+        None
+    ) is None:
+
+        st.error(
+            "Kein Passwort in st.secrets konfiguriert."
+        )
+
+        st.stop()
+
+
+
+    if "password_correct" not in st.session_state:
+
+
+        st.text_input(
+            "Passwort",
+            type="password",
+            key="password",
+            on_change=password_entered
+        )
+
+        st.stop()
+
+
+
+    elif not st.session_state["password_correct"]:
+
+
+        st.text_input(
+            "Passwort",
+            type="password",
+            key="password",
+            on_change=password_entered
+        )
+
+        st.error(
+            "Passwort falsch"
+        )
+
+        st.stop()
+
+
+
+    return True
+
+
+
+check_password()
+
+
+
+# ============================================
+# 2. SESSION STATE
+# ============================================
+
 
 DEFAULTS = {
 
     "aktien_liste": [],
+
     "datenbank": {},
+
     "modus": "sammeln",
+
     "abfrage_queue": [],
+
     "version_loaded": "",
+
     "levermann_txt": {}
 
 }
 
 
-for key, value in DEFAULTS.items():
+
+for key,value in DEFAULTS.items():
 
     if key not in st.session_state:
-        st.session_state[key] = value
+
+        st.session_state[key]=value
 
 
 
 if st.session_state.version_loaded != VERSION:
 
-    for key, value in DEFAULTS.items():
-        st.session_state[key] = value
+
+    for key,value in DEFAULTS.items():
+
+        st.session_state[key]=value
+
 
     st.session_state.version_loaded = VERSION
 
 
 
+
+
 # ============================================
-# 2. STOCK UNIVERSUM
+# 3. STOCK UNIVERSUM
 # ============================================
+
 
 STOCK_UNIVERSE = [
 
 
-{"ticker":"NVDA","name":"Nvidia",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Compute","typ":"Empfänger"},
+{
+"ticker":"NVDA",
+"name":"Nvidia",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Compute",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"AMD","name":"AMD",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Compute","typ":"Empfänger"},
+{
+"ticker":"AMD",
+"name":"AMD",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Compute",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"AVGO","name":"Broadcom",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Compute","typ":"Empfänger"},
+{
+"ticker":"AVGO",
+"name":"Broadcom",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Compute",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"MRVL","name":"Marvell",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Compute","typ":"Empfänger"},
+{
+"ticker":"MRVL",
+"name":"Marvell",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Compute",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"INTC","name":"Intel",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Compute","typ":"Empfänger"},
+{
+"ticker":"INTC",
+"name":"Intel",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Compute",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"MU","name":"Micron",
-"country":"USA","flag":"🇺🇸",
-"segment":"Memory / HBM","typ":"Empfänger"},
+{
+"ticker":"MU",
+"name":"Micron",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Memory / HBM",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"SKHY","name":"SK Hynix ADR",
-"country":"South Korea","flag":"🇰🇷",
-"segment":"Memory / HBM","typ":"Empfänger"},
+{
+"ticker":"SKHY",
+"name":"SK Hynix ADR",
+"country":"South Korea",
+"flag":"🇰🇷",
+"segment":"Memory / HBM",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"WDC","name":"Western Digital",
-"country":"USA","flag":"🇺🇸",
-"segment":"Memory / HBM","typ":"Empfänger"},
+{
+"ticker":"WDC",
+"name":"Western Digital",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Memory / HBM",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"STX","name":"Seagate",
-"country":"USA","flag":"🇺🇸",
-"segment":"Memory / HBM","typ":"Empfänger"},
+{
+"ticker":"STX",
+"name":"Seagate",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Memory / HBM",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"ASML","name":"ASML ADR",
-"country":"Netherlands","flag":"🇳🇱",
-"segment":"Semi Equipment","typ":"Empfänger"},
+{
+"ticker":"ASML",
+"name":"ASML ADR",
+"country":"Netherlands",
+"flag":"🇳🇱",
+"segment":"Semi Equipment",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"AMAT","name":"Applied Materials",
-"country":"USA","flag":"🇺🇸",
-"segment":"Semi Equipment","typ":"Empfänger"},
+{
+"ticker":"AMAT",
+"name":"Applied Materials",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Semi Equipment",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"LRCX","name":"Lam Research",
-"country":"USA","flag":"🇺🇸",
-"segment":"Semi Equipment","typ":"Empfänger"},
+{
+"ticker":"LRCX",
+"name":"Lam Research",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Semi Equipment",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"KLAC","name":"KLA",
-"country":"USA","flag":"🇺🇸",
-"segment":"Semi Equipment","typ":"Empfänger"},
+{
+"ticker":"KLAC",
+"name":"KLA",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Semi Equipment",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"TER","name":"Teradyne",
-"country":"USA","flag":"🇺🇸",
-"segment":"Semi Equipment","typ":"Empfänger"},
+{
+"ticker":"TER",
+"name":"Teradyne",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Semi Equipment",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"TSM","name":"TSMC ADR",
-"country":"Taiwan","flag":"🇹🇼",
-"segment":"Foundry","typ":"Empfänger"},
+{
+"ticker":"TSM",
+"name":"TSMC ADR",
+"country":"Taiwan",
+"flag":"🇹🇼",
+"segment":"Foundry",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"TXN","name":"Texas Instruments",
-"country":"USA","flag":"🇺🇸",
-"segment":"Analog Semiconductor","typ":"Empfänger"},
+{
+"ticker":"GFS",
+"name":"GlobalFoundries",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Foundry",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"PLTR","name":"Palantir",
-"country":"USA","flag":"🇺🇸",
-"segment":"AI Application Layer","typ":"Neutral"},
+{
+"ticker":"DELL",
+"name":"Dell",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Server Hardware",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"MSFT","name":"Microsoft",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"SMCI",
+"name":"Super Micro Computer",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Server Hardware",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"AMZN","name":"Amazon",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"ETN",
+"name":"Eaton",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Power Infrastructure",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"GOOGL","name":"Alphabet",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"VRT",
+"name":"Vertiv",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Power Infrastructure",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"META","name":"Meta",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"BE",
+"name":"Bloom Energy",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Power Infrastructure",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"ORCL","name":"Oracle",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"GEV",
+"name":"GE Vernova",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Power Infrastructure",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"NOW","name":"ServiceNow",
-"country":"USA","flag":"🇺🇸",
-"segment":"Cloud / AI Platform","typ":"Spender"},
+{
+"ticker":"CEG",
+"name":"Constellation Energy",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Power Infrastructure",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"EQIX","name":"Equinix",
-"country":"USA","flag":"🇺🇸",
-"segment":"Data Center","typ":"Spender"},
+{
+"ticker":"ANET",
+"name":"Arista Networks",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Networking",
+"typ":"Empfänger"
+},
 
 
-{"ticker":"DLR","name":"Digital Realty",
-"country":"USA","flag":"🇺🇸",
-"segment":"Data Center","typ":"Spender"}
+{
+"ticker":"CSCO",
+"name":"Cisco",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Networking",
+"typ":"Empfänger"
+},
+
+
+{
+"ticker":"MSFT",
+"name":"Microsoft",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Cloud AI",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"AMZN",
+"name":"Amazon",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Cloud AI",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"GOOGL",
+"name":"Alphabet",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Cloud AI",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"META",
+"name":"Meta",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Cloud AI",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"ORCL",
+"name":"Oracle",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Cloud AI",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"NOW",
+"name":"ServiceNow",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Software",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"EQIX",
+"name":"Equinix",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Data Center",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"DLR",
+"name":"Digital Realty",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"Data Center",
+"typ":"Spender"
+},
+
+
+{
+"ticker":"PLTR",
+"name":"Palantir",
+"country":"USA",
+"flag":"🇺🇸",
+"segment":"AI Software",
+"typ":"Neutral"
+}
+
 
 ]
 
 
-if len(st.session_state.aktien_liste) == 0:
+
+if len(st.session_state.aktien_liste)==0:
 
     st.session_state.aktien_liste = [
-        x["ticker"] for x in STOCK_UNIVERSE
+
+        x["ticker"]
+
+        for x in STOCK_UNIVERSE
+
     ]
 
 
-# ============================================
-# 3. CAPEX LOGIK
-# ============================================
 
 CAPEX_BIAS = {
 
-    "Empfänger": 5,
-    "Spender": -5,
-    "Neutral": 0
+    "Empfänger":10,
+
+    "Spender":-10,
+
+    "Neutral":0
 
 }
 
 
+# ============================================
+# 4. WEIGHTS
+# ============================================
 
-# ============================================
-# 4. GEWICHTUNG
-# ============================================
 
 WEIGHTS = {
 
 
-"Empfänger": {
+"Empfänger":{
 
-"Forward_KGV":0.15,
-"EV_EBITDA":0.10,
-"Umsatz_Wachstum":0.25,
+"Forward_KGV":0.10,
+"EV_EBITDA":0.05,
+"Umsatz_Wachstum":0.30,
 "Bruttomarge":0.10,
-"Operating_Margin":0.25,
+"Operating_Margin":0.30,
 "FCF_Marge":0.05,
-"NetDebt_EBITDA":0.10
+"NetDebt_EBITDA":0.05,
+"Performance_52W":0.05
 
 },
 
 
-"Spender": {
+"Spender":{
 
 "Forward_KGV":0.15,
 "EV_EBITDA":0.10,
-"Umsatz_Wachstum":0.10,
+"Umsatz_Wachstum":0.05,
 "Bruttomarge":0.15,
 "Operating_Margin":0.25,
-"FCF_Marge":0.15,
-"NetDebt_EBITDA":0.10
+"FCF_Marge":0.20,
+"NetDebt_EBITDA":0.05,
+"Performance_52W":0.05
 
 },
 
 
-"Neutral": {
+"Neutral":{
 
 "Forward_KGV":0.15,
 "EV_EBITDA":0.15,
@@ -315,14 +588,15 @@ WEIGHTS = {
 "Bruttomarge":0.15,
 "Operating_Margin":0.15,
 "FCF_Marge":0.15,
-"NetDebt_EBITDA":0.10
+"NetDebt_EBITDA":0.05,
+"Performance_52W":0.05
 
 }
 
 }
 
 
-PFLICHT_KPIS = [
+PFLICHT_KPIS=[
 
 "Forward_KGV",
 "EV_EBITDA",
@@ -330,12 +604,13 @@ PFLICHT_KPIS = [
 "Bruttomarge",
 "Operating_Margin",
 "FCF_Marge",
+"Performance_52W",
 "NetDebt_EBITDA"
 
 ]
 
 
-KPI_LABELS = {
+KPI_LABELS={
 
 "Forward_KGV":"Forward KGV",
 "EV_EBITDA":"EV/EBITDA",
@@ -343,113 +618,93 @@ KPI_LABELS = {
 "Bruttomarge":"Bruttomarge",
 "Operating_Margin":"Operating Margin",
 "FCF_Marge":"FCF Marge",
-"NetDebt_EBITDA":"Net Debt/EBITDA",
-"Aktueller_Kurs":"Aktueller Kurs"
+"Performance_52W":"Performance 52 Wochen",
+"NetDebt_EBITDA":"Net Debt/EBITDA"
 
 }
+
 
 
 # ============================================
 # LEVERMANN TXT
 # ============================================
 
+
 def lade_levermann_aus_datei():
 
     try:
 
-        df_lev = pd.read_csv(
+        df=pd.read_csv(
             "Levermann.txt",
             header=None,
-            names=["Ticker","Wert"]
+            names=[
+                "Ticker",
+                "Wert"
+            ]
         )
 
-        df_lev["Ticker"] = (
-            df_lev["Ticker"]
+
+        df["Ticker"]=(
+            df["Ticker"]
             .astype(str)
-            .str.strip()
             .str.upper()
-        )
-
-        df_lev["Wert"] = pd.to_numeric(
-            df_lev["Wert"],
-            errors="coerce"
+            .str.strip()
         )
 
 
-        if df_lev["Wert"].isna().any():
-
-            st.warning(
-                "Ungültige Levermann Werte in TXT gefunden"
+        st.session_state.levermann_txt = dict(
+            zip(
+                df["Ticker"],
+                df["Wert"]
             )
-
-
-        st.session_state.levermann_txt = (
-            df_lev
-            .dropna()
-            .set_index("Ticker")["Wert"]
-            .to_dict()
         )
 
 
-    except Exception:
+    except:
 
-        st.error(
-            "Levermann.txt fehlt oder ist fehlerhaft"
+
+        st.session_state.levermann_txt={}
+
+
+        st.warning(
+            "Levermann.txt nicht gefunden"
         )
 
-        st.stop()
 
 
-
-def berechne_levermann_faktor(score):
-
-    if pd.isna(score):
-
-        return 1.0
-
-
-    score=float(score)
-
-
-    if score >= 6:
-        return 1.10
-
-    elif score >=4:
-        return 1.05
-
-    elif score >=0:
-        return 1.00
-
-    else:
-        return 0.95
-
-
-#ende block1
+#Ende Block 1
 # ============================================
 # 5. HELPER
 # ============================================
 
-@st.cache_data(ttl=7200)
+
+@st.cache_data(ttl=1800)
 def get_fear_greed():
 
     try:
-        return round(fear_and_greed.get().value)
+
+        return round(
+            fear_and_greed.get().value
+        )
 
     except:
+
         return 50
 
 
 
-def safe_get(info, key):
+def safe_get(info,key):
 
     try:
 
-        value = info.get(key)
+        value=info.get(key)
 
         if value is None:
+
             return np.nan
 
         return value
+
 
     except:
 
@@ -460,63 +715,95 @@ def safe_get(info, key):
 def parse_number(text):
 
     if text is None:
+
         return np.nan
 
-    text = str(text).strip().replace(",", ".")
+
+    text=str(text).strip().replace(",",".")
+
 
     try:
+
         return float(text)
 
     except:
+
         return np.nan
+
 
 
 
 def init_ticker(ticker):
 
+
     if ticker not in st.session_state.datenbank:
 
-        meta = next(
+
+        meta=next(
+
             (
                 x for x in STOCK_UNIVERSE
-                if x["ticker"] == ticker
+                if x["ticker"]==ticker
             ),
+
             {
                 "ticker":ticker,
                 "name":ticker
             }
+
         )
 
 
-        st.session_state.datenbank[ticker] = {
+        st.session_state.datenbank[ticker]={
 
             "daten":{
+
                 "Ticker":ticker,
+
                 **meta
+
             },
 
+
             "audit":{},
+
             "status":"neu"
 
         }
 
 
 
-def save_kpi(ticker, kpi, value, quelle):
 
-    obj = st.session_state.datenbank[ticker]
+def save_kpi(
+    ticker,
+    kpi,
+    value,
+    quelle
+):
 
-    obj["daten"][kpi] = value
+
+    obj=st.session_state.datenbank[ticker]
 
 
-    obj["audit"][kpi] = {
+    obj["daten"][kpi]=value
+
+
+    obj["audit"][kpi]={
 
         "Wert":value,
+
         "Quelle":quelle,
-        "Zeit":datetime.now().strftime("%Y-%m-%d %H:%M"),
+
+        "Zeit":
+        datetime.now()
+        .strftime("%Y-%m-%d %H:%M"),
+
         "Version":VERSION
 
     }
+
+
+
 
 
 
@@ -524,188 +811,263 @@ def save_kpi(ticker, kpi, value, quelle):
 # 6. YAHOO DATEN
 # ============================================
 
-@st.cache_data(ttl=7200, show_spinner=False)
+
+@st.cache_data(
+    ttl=3600,
+    show_spinner=False
+)
+
 def yahoo_laden(ticker):
+
 
     try:
 
+
         time.sleep(0.2)
 
-        tk = yf.Ticker(ticker)
 
-        info = tk.info or {}
+        tk=yf.Ticker(ticker)
 
-        fin = tk.financials
 
-        cf = tk.cashflow
+        info=tk.info or {}
+
+
+        fin=tk.financials
+
+
+        cf=tk.cashflow
 
 
 
         price = (
+
             safe_get(info,"currentPrice")
-            or safe_get(info,"regularMarketPrice")
-            or safe_get(info,"previousClose")
+
+            or
+
+            safe_get(info,"regularMarketPrice")
+
+            or
+
+            safe_get(info,"previousClose")
+
         )
 
 
-        currency = safe_get(info,"currency")
 
-
-        forward_kgv = safe_get(
-            info,
-            "forwardPE"
-        )
-
-
-        ev_ebitda = safe_get(
-            info,
-            "enterpriseToEbitda"
-        )
-
-
-        umsatz_wachstum = safe_get(
-            info,
-            "revenueGrowth"
-        )
-
-
-        brutto = safe_get(
-            info,
-            "grossMargins"
-        )
-
-
-        op_marge = safe_get(
-            info,
-            "operatingMargins"
-        )
-
-
-        fcf = safe_get(
-            info,
-            "freeCashflow"
-        )
-
-
-        revenue = safe_get(
+        revenue=safe_get(
             info,
             "totalRevenue"
         )
 
 
+        fcf=safe_get(
+            info,
+            "freeCashflow"
+        )
+
+
+
         if pd.isna(revenue) and not fin.empty:
 
-            revenue = fin.iloc[0,0]
+            revenue=fin.iloc[0,0]
+
 
 
         if (
+
             pd.isna(fcf)
+
             and not cf.empty
+
             and "Free Cash Flow" in cf.index
+
         ):
 
-            fcf = cf.loc[
+            fcf=cf.loc[
                 "Free Cash Flow"
             ].iloc[0]
 
 
 
-        fcf_marge = np.nan
+        fcf_marge=np.nan
 
 
         if (
+
             not pd.isna(fcf)
+
             and not pd.isna(revenue)
-            and revenue != 0
+
+            and revenue!=0
+
         ):
 
-            fcf_marge = fcf / revenue
+            fcf_marge=fcf/revenue
+
+
+
+
+        brutto=safe_get(
+            info,
+            "grossMargins"
+        )
+
+
+        op_marge=safe_get(
+            info,
+            "operatingMargins"
+        )
 
 
 
         if (
+
             pd.isna(brutto)
+
             and not fin.empty
+
             and "Gross Profit" in fin.index
+
             and "Total Revenue" in fin.index
+
         ):
+
 
             try:
 
-                brutto = (
-                    fin.loc["Gross Profit"].iloc[0]
+                brutto=(
+
+                    fin.loc[
+                        "Gross Profit"
+                    ].iloc[0]
+
                     /
-                    fin.loc["Total Revenue"].iloc[0]
+
+                    fin.loc[
+                        "Total Revenue"
+                    ].iloc[0]
+
                 )
 
+
             except:
+
                 pass
+
 
 
 
         if (
+
             pd.isna(op_marge)
+
             and not fin.empty
+
             and "Operating Income" in fin.index
+
             and "Total Revenue" in fin.index
+
         ):
+
 
             try:
 
-                op_marge = (
-                    fin.loc["Operating Income"].iloc[0]
+                op_marge=(
+
+                    fin.loc[
+                        "Operating Income"
+                    ].iloc[0]
+
                     /
-                    fin.loc["Total Revenue"].iloc[0]
+
+                    fin.loc[
+                        "Total Revenue"
+                    ].iloc[0]
+
                 )
 
+
             except:
+
                 pass
 
 
 
-        total_debt = safe_get(
+
+        debt=safe_get(
             info,
             "totalDebt"
         )
 
-        total_cash = safe_get(
+
+        cash=safe_get(
             info,
             "totalCash"
         )
 
-        ebitda = safe_get(
+
+        ebitda=safe_get(
             info,
             "ebitda"
         )
 
 
-        netdebt_ebitda = np.nan
+        netdebt_ebitda=np.nan
+
 
 
         if (
-            not pd.isna(total_debt)
-            and not pd.isna(total_cash)
+
+            not pd.isna(debt)
+
+            and not pd.isna(cash)
+
             and not pd.isna(ebitda)
-            and ebitda > 0
+
+            and ebitda!=0
+
         ):
 
-            netdebt_ebitda = (
-                total_debt - total_cash
-            ) / ebitda
+
+            netdebt_ebitda=(
+
+                debt-cash
+
+            )/ebitda
+
+
 
 
 
         return {
 
+
             "Aktueller_Kurs":price,
-            "Waehrung":currency,
-            "Forward_KGV":forward_kgv,
-            "EV_EBITDA":ev_ebitda,
-            "Umsatz_Wachstum":umsatz_wachstum,
-            "Bruttomarge":brutto,
-            "Operating_Margin":op_marge,
-            "FCF_Marge":fcf_marge,
-            "NetDebt_EBITDA":netdebt_ebitda
+
+            "Forward_KGV":
+            safe_get(info,"forwardPE"),
+
+            "EV_EBITDA":
+            safe_get(info,"enterpriseToEbitda"),
+
+            "Umsatz_Wachstum":
+            safe_get(info,"revenueGrowth"),
+
+            "Bruttomarge":
+            brutto,
+
+            "Operating_Margin":
+            op_marge,
+
+            "FCF_Marge":
+            fcf_marge,
+
+            "Performance_52W":
+            safe_get(info,"52WeekChange"),
+
+            "NetDebt_EBITDA":
+            netdebt_ebitda
 
         }
 
@@ -713,32 +1075,37 @@ def yahoo_laden(ticker):
 
     except Exception:
 
+
         return None
+
+
 
 
 
 
 def fehlende_kpis(ticker):
 
-    daten = (
-        st.session_state
-        .datenbank[ticker]["daten"]
-    )
+
+    daten=st.session_state.datenbank[ticker]["daten"]
 
 
     return [
 
-        kpi
-        for kpi in PFLICHT_KPIS
+        x for x in PFLICHT_KPIS
+
         if pd.isna(
-            daten.get(kpi,np.nan)
+            daten.get(x,np.nan)
         )
 
     ]
 
 
 
+
+
+
 def baue_abfrage_queue():
+
 
     queue=[]
 
@@ -749,19 +1116,22 @@ def baue_abfrage_queue():
         init_ticker(ticker)
 
 
-        obj = st.session_state.datenbank[ticker]
+        obj=st.session_state.datenbank[ticker]
+
 
 
         if obj["status"]=="neu":
 
 
-            daten = yahoo_laden(ticker)
+            daten=yahoo_laden(ticker)
+
 
 
             if daten:
 
 
-                for kpi, wert in daten.items():
+                for kpi,wert in daten.items():
+
 
                     if not pd.isna(wert):
 
@@ -777,21 +1147,29 @@ def baue_abfrage_queue():
 
 
 
+
         for kpi in fehlende_kpis(ticker):
 
             queue.append(
-                (ticker,kpi)
+                (
+                    ticker,
+                    kpi
+                )
             )
 
 
-    st.session_state.abfrage_queue = queue
+
+    st.session_state.abfrage_queue=queue
+
 
 
 
 
 # ============================================
-# 7. SCORING ENGINE
+# 7. SCORING
 # ============================================
+
+
 
 def normalize_global(
     df,
@@ -800,13 +1178,14 @@ def normalize_global(
 ):
 
 
-    s = pd.to_numeric(
+    s=pd.to_numeric(
         df[col],
         errors="coerce"
     )
 
 
     valid=s.dropna()
+
 
 
     if len(valid)<2:
@@ -817,12 +1196,15 @@ def normalize_global(
         )
 
 
+
     x=s.copy()
+
 
 
     if not higher_better:
 
         x=-x
+
 
 
     return x.rank(
@@ -832,31 +1214,82 @@ def normalize_global(
 
 
 
+
+
+def berechne_levermann_faktor(lev):
+
+
+    if pd.isna(lev):
+
+        return 1.0
+
+
+
+    try:
+
+        lev=float(lev)
+
+
+    except:
+
+        return 1.0
+
+
+
+
+    if lev < 3:
+
+        return 0.90
+
+
+    elif lev < 4:
+
+        return 1.00
+
+
+    elif lev < 5:
+
+        return 1.05
+
+
+    elif lev < 6:
+
+        return 1.10
+
+
+    else:
+
+        return 1.20
+
+
+
+
+
 def calculate_scores(df):
 
 
-    df["Datenpunkte"] = (
+    df["Datenpunkte"]=(
         df[PFLICHT_KPIS]
         .notna()
         .sum(axis=1)
     )
 
 
-    df["Vollständig"] = (
+    df["Vollständig"]=(
         df["Datenpunkte"]
         ==
         len(PFLICHT_KPIS)
     )
 
 
-    df["Datenqualität"] = (
+    df["Datenqualität"]=(
         df["Datenpunkte"]
         /
         len(PFLICHT_KPIS)
     )
 
 
-    df["Capex_Bias"] = (
+    df["Capex_Bias"]=(
         df["typ"]
         .map(CAPEX_BIAS)
     )
@@ -866,22 +1299,25 @@ def calculate_scores(df):
     for col in PFLICHT_KPIS:
 
 
-        lower_better = col in [
+        lower = col in [
 
             "Forward_KGV",
+
             "EV_EBITDA",
+
             "NetDebt_EBITDA"
 
         ]
 
 
-        df[f"Norm_{col}"] = normalize_global(
-
+        df[
+            f"Norm_{col}"
+        ]=normalize_global(
             df,
             col,
-            not lower_better
-
+            not lower
         )
+
 
 
 
@@ -892,15 +1328,15 @@ def calculate_scores(df):
     for idx,row in df.iterrows():
 
 
-        weights = WEIGHTS[row["typ"]]
-
         score=0
 
 
-        for col,w in weights.items():
+        for col,w in WEIGHTS[row["typ"]].items():
 
 
-            value=row[f"Norm_{col}"]
+            value=row[
+                f"Norm_{col}"
+            ]
 
 
             if not pd.isna(value):
@@ -909,21 +1345,25 @@ def calculate_scores(df):
 
 
 
-        df.at[idx,"Finanzscore"] = score*100
+        df.at[idx,"Finanzscore"]=score*100
 
 
 
 
-    df["Gesamtscore_Roh"] = (
-        df["Finanzscore"]*0.9
+
+    df["Gesamtscore_Roh"]=(
+        df["Finanzscore"]
+        *
+        0.9
     )
 
 
 
     # Levermann nur TXT
-    df["Levermann"] = df["Ticker"].apply(
+    df["Levermann"]=df["Ticker"].apply(
 
         lambda x:
+
         st.session_state.levermann_txt.get(
             x,
             np.nan
@@ -932,48 +1372,56 @@ def calculate_scores(df):
     )
 
 
-    df["Levermann_Faktor"] = (
 
+    df["Levermann_Faktor"]=(
         df["Levermann"]
         .apply(
             berechne_levermann_faktor
         )
-
     )
 
 
 
-    df["Gesamtscore_Roh_mit_Lev"] = (
-
+    df["Gesamtscore_Roh_mit_Lev"]=(
         df["Gesamtscore_Roh"]
+
         *
+
         df["Levermann_Faktor"]
 
     )
 
 
 
-    df["Gesamtscore"] = (
-
+    df["Gesamtscore"]=(
+        
         df["Gesamtscore_Roh_mit_Lev"]
+
         *
+
         (
             0.3
+
             +
+
             0.7*df["Datenqualität"]
+
         )
+
         +
+
         df["Capex_Bias"]
 
     ).round(1)
 
 
 
+
     df=df.sort_values(
 
         "Gesamtscore",
-        ascending=False,
-        na_position="last"
+
+        ascending=False
 
     ).reset_index(drop=True)
 
@@ -982,12 +1430,19 @@ def calculate_scores(df):
     df["Rang"]=df.index+1
 
 
+
     return df
 
 
 
 
-def get_investment_rating(score, vollständig):
+
+
+def get_investment_rating(
+    score,
+    vollständig
+):
+
 
     if pd.isna(score):
 
@@ -999,17 +1454,21 @@ def get_investment_rating(score, vollständig):
         return "N/A - Daten fehlen"
 
 
-    if score >=80:
+
+    if score>=80:
 
         return "Strong Buy"
 
-    elif score >=65:
+
+    elif score>=65:
 
         return "Buy"
 
-    elif score >=45:
+
+    elif score>=45:
 
         return "Hold"
+
 
     else:
 
@@ -1017,16 +1476,7 @@ def get_investment_rating(score, vollständig):
 
 
 
-def highlight_na(val):
-
-    return (
-        "background-color: #FFF9C4"
-        if pd.isna(val)
-        else ""
-    )
-
-
-#ende block2
+#Ende Block 2
 # ============================================
 # 8. SCREENS
 # ============================================
@@ -1035,60 +1485,29 @@ def highlight_na(val):
 def screen_sammeln():
 
 
-    st.markdown(
-        """
-        <style>
-        @import url(
-        'https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap'
-        );
-
-        .stTable {
-        font-family:
-        'Noto Color Emoji',
-        'Apple Color Emoji',
-        'Segoe UI Emoji',
-        sans-serif;
-        }
-
-        </style>
-        """,
-        unsafe_allow_html=True
+    st.title(
+        f"AI Infrastructure CAPEX Ranking {VERSION}"
     )
 
 
-    col1,col2 = st.columns([4,1])
-
-
-    with col1:
-
-        st.title(
-            f"AI Infrastructure CAPEX Cycle Ranking 2027 {VERSION}"
-        )
-
-
-    with col2:
-
-        st.markdown(
-            "[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)"
-        )
-
-
-    fear = get_fear_greed()
+    fear=get_fear_greed()
 
 
     st.info(
         f"""
         **Axiom:** {AI_CYCLE_ASSUMPTION}
 
+        | Horizont: Ende 2027
+
         | Fear&Greed: {fear}
 
-        | Horizont: Ende 2027
+        | Levermann: TXT Multiplikator
         """
     )
 
 
 
-    empfänger = len(
+    empfänger=len(
         [
             x for x in STOCK_UNIVERSE
             if x["typ"]=="Empfänger"
@@ -1096,7 +1515,7 @@ def screen_sammeln():
     )
 
 
-    spender = len(
+    spender=len(
         [
             x for x in STOCK_UNIVERSE
             if x["typ"]=="Spender"
@@ -1104,7 +1523,7 @@ def screen_sammeln():
     )
 
 
-    neutral = len(
+    neutral=len(
         [
             x for x in STOCK_UNIVERSE
             if x["typ"]=="Neutral"
@@ -1122,19 +1541,14 @@ def screen_sammeln():
 
 
     df_meta=pd.DataFrame(
-
-        [
-            x for x in STOCK_UNIVERSE
-            if x["ticker"]
-            in st.session_state.aktien_liste
-        ]
-
+        STOCK_UNIVERSE
     )
 
 
-    st.table(
+    st.dataframe(
 
         df_meta[
+
             [
                 "ticker",
                 "name",
@@ -1142,7 +1556,10 @@ def screen_sammeln():
                 "segment",
                 "typ"
             ]
-        ]
+
+        ],
+
+        use_container_width=True
 
     )
 
@@ -1156,22 +1573,30 @@ def screen_sammeln():
 
 
         with st.spinner(
-            "Lade Yahoo + Levermann TXT..."
+            "Lade Yahoo Daten + Levermann.txt..."
         ):
 
 
             lade_levermann_aus_datei()
 
+
             baue_abfrage_queue()
 
 
-            if len(st.session_state.abfrage_queue)>0:
+
+            if len(
+                st.session_state.abfrage_queue
+            )>0:
+
 
                 st.session_state.modus="abfrage"
 
+
             else:
 
+
                 st.session_state.modus="ranking"
+
 
 
         st.rerun()
@@ -1180,10 +1605,14 @@ def screen_sammeln():
 
 
 
+
 def screen_abfrage():
 
 
-    if len(st.session_state.abfrage_queue)==0:
+    if len(
+        st.session_state.abfrage_queue
+    )==0:
+
 
         st.session_state.modus="ranking"
 
@@ -1193,45 +1622,51 @@ def screen_abfrage():
 
 
 
-    ticker,kpi = (
+
+    ticker,kpi=(
         st.session_state.abfrage_queue[0]
     )
 
 
-    st.error(
+    st.warning(
         f"Fehlender Wert: {ticker} - {KPI_LABELS[kpi]}"
     )
 
 
     st.write(
-        f"Noch {len(st.session_state.abfrage_queue)} fehlende KPIs"
+
+        f"Noch {len(st.session_state.abfrage_queue)} Werte offen"
+
     )
 
 
-
-    eingabe = st.text_input(
+    wert_input=st.text_input(
         "Wert eingeben"
     )
 
 
 
-    col1,col2,col3 = st.columns(3)
+    col1,col2,col3=st.columns(3)
 
 
 
     with col1:
 
 
-        if st.button("💾 Speichern"):
+        if st.button(
+            "💾 Speichern"
+        ):
 
 
-            wert=parse_number(eingabe)
+            wert=parse_number(
+                wert_input
+            )
 
 
             if pd.isna(wert):
 
                 st.error(
-                    "Keine gültige Zahl"
+                    "Ungültige Zahl"
                 )
 
                 return
@@ -1239,36 +1674,50 @@ def screen_abfrage():
 
 
             save_kpi(
+
                 ticker,
+
                 kpi,
+
                 wert,
+
                 "Manuell"
+
             )
 
 
             st.session_state.abfrage_queue.pop(0)
 
             st.rerun()
+
 
 
 
     with col2:
 
 
-        if st.button("⏭️ Überspringen"):
+        if st.button(
+            "⏭ Überspringen"
+        ):
 
 
             save_kpi(
+
                 ticker,
+
                 kpi,
+
                 np.nan,
+
                 "Übersprungen"
+
             )
 
 
             st.session_state.abfrage_queue.pop(0)
 
             st.rerun()
+
 
 
 
@@ -1276,25 +1725,35 @@ def screen_abfrage():
 
 
         if st.button(
-            "⏭️⏭️ Alle überspringen"
+            "⏭⏭ Alle überspringen"
         ):
 
 
             for t,k in st.session_state.abfrage_queue:
 
+
                 save_kpi(
+
                     t,
+
                     k,
+
                     np.nan,
-                    "Bulk Übersprungen"
+
+                    "Bulk"
+
                 )
 
 
             st.session_state.abfrage_queue=[]
 
+
             st.session_state.modus="ranking"
 
+
             st.rerun()
+
+
 
 
 
@@ -1303,42 +1762,9 @@ def screen_abfrage():
 def screen_ranking():
 
 
-    st.markdown(
-        """
-        <style>
-        @import url(
-        'https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap'
-        );
-
-        .stTable {
-        font-family:
-        'Noto Color Emoji',
-        'Apple Color Emoji',
-        'Segoe UI Emoji',
-        sans-serif;
-        }
-
-        </style>
-        """,
-        unsafe_allow_html=True
+    st.title(
+        f"AI Infrastructure CAPEX Ranking {VERSION}"
     )
-
-
-    col1,col2 = st.columns([4,1])
-
-
-    with col1:
-
-        st.title(
-            f"AI Infrastructure CAPEX Cycle Ranking 2027 {VERSION}"
-        )
-
-
-    with col2:
-
-        st.markdown(
-            "[📄 README](https://github.com/CV1973/Ranking-/blob/main/README.md)"
-        )
 
 
 
@@ -1352,11 +1778,14 @@ def screen_ranking():
 
 
 
-    df=pd.DataFrame(liste)
+    df=pd.DataFrame(
+        liste
+    )
 
 
 
     if len(df)<2:
+
 
         st.error(
             "Zu wenige Aktien"
@@ -1375,8 +1804,11 @@ def screen_ranking():
         lambda x:
 
         get_investment_rating(
+
             x["Gesamtscore"],
+
             x["Vollständig"]
+
         ),
 
         axis=1
@@ -1385,53 +1817,21 @@ def screen_ranking():
 
 
 
-    fehlende=df[
-        df["Vollständig"]==False
-    ]
-
-
-
-    if len(fehlende)>0:
-
-        st.warning(
-
-            f"{len(fehlende)} Werte haben fehlende Daten"
-
-        )
-
-
-        st.table(
-
-            fehlende[
-                [
-                    "Ticker",
-                    "name",
-                    "flag",
-                    "Datenpunkte"
-                ]
-            ]
-
-        )
-
-
-
-    st.subheader(
-        "Globales Ranking"
-    )
-
-
     st.success(
+
         f"Axiom aktiv: {AI_CYCLE_ASSUMPTION}"
+
     )
 
 
     st.caption(
+
         """
         Modell:
         Finanzqualität + Wachstum + Profitabilität
 
         CAPEX Bias:
-        Empfänger +5 | Spender -5
+        Empfänger +10 | Spender -10
 
         Levermann:
         zusätzlicher Qualitätsmultiplikator
@@ -1439,50 +1839,67 @@ def screen_ranking():
         Horizont:
         Ende 2027
         """
+
     )
 
 
 
-    seg_filter = st.selectbox(
+    filter_segment=st.selectbox(
 
         "Segment Filter",
 
         [
             "Alle"
         ]
+
         +
+
         sorted(
-            df["segment"].unique()
+            df["segment"]
+            .dropna()
+            .unique()
+            .tolist()
         )
 
     )
 
 
 
-    if seg_filter!="Alle":
+    if filter_segment!="Alle":
+
 
         df_show=df[
-            df["segment"]==seg_filter
+            df["segment"]==filter_segment
         ].copy()
 
+
     else:
+
 
         df_show=df.copy()
 
 
 
+
     show_cols=[
 
+
         "Rang",
+
         "Ticker",
+
         "name",
+
         "flag",
+
         "segment",
+
         "typ",
 
         "Capex_Bias",
 
         "Levermann",
+
         "Levermann_Faktor",
 
         "Gesamtscore",
@@ -1496,6 +1913,8 @@ def screen_ranking():
         "EV_EBITDA",
 
         "Umsatz_Wachstum",
+
+        "Bruttomarge",
 
         "Operating_Margin",
 
@@ -1517,14 +1936,10 @@ def screen_ranking():
 
 
 
+    # KISS: kein Styler / kein applymap
     st.dataframe(
 
-        df_show[show_cols]
-
-        .style
-        .applymap(
-            highlight_na
-        ),
+        df_show[show_cols],
 
         use_container_width=True
 
@@ -1537,7 +1952,6 @@ def screen_ranking():
     ).encode(
         "utf-8"
     )
-
 
 
     st.download_button(
@@ -1556,6 +1970,7 @@ def screen_ranking():
 
 
 
+
 # ============================================
 # 9. APP START
 # ============================================
@@ -1563,14 +1978,19 @@ def screen_ranking():
 
 if st.session_state.modus=="sammeln":
 
+
     screen_sammeln()
+
 
 
 elif st.session_state.modus=="abfrage":
 
+
     screen_abfrage()
 
 
+
 elif st.session_state.modus=="ranking":
+
 
     screen_ranking()
